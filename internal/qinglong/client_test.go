@@ -231,3 +231,44 @@ func TestClient_ConcurrentTokenRefresh(t *testing.T) {
 		t.Fatalf("list hits = %d, want %d", listHits, n)
 	}
 }
+
+func TestNewClient_InvalidConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cfg  ClientConfig
+	}{
+		{name: "empty base url", cfg: ClientConfig{BaseURL: "", ClientID: "id", ClientSecret: "sec"}},
+		{name: "bad scheme", cfg: ClientConfig{BaseURL: "ftp://example.com", ClientID: "id", ClientSecret: "sec"}},
+		{name: "missing host", cfg: ClientConfig{BaseURL: "http://", ClientID: "id", ClientSecret: "sec"}},
+		{name: "empty client id", cfg: ClientConfig{BaseURL: "http://example.com", ClientID: "", ClientSecret: "sec"}},
+		{name: "empty client secret", cfg: ClientConfig{BaseURL: "http://example.com", ClientID: "id", ClientSecret: ""}},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := NewClient(tc.cfg, &http.Client{}); err == nil {
+				t.Fatalf("NewClient() error = nil, want not nil")
+			}
+		})
+	}
+}
+
+func TestNewClient_NormalizesBaseURL(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewClient(ClientConfig{
+		BaseURL:      "http://example.com/",
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, &http.Client{})
+	if err != nil {
+		t.Fatalf("NewClient() error: %v", err)
+	}
+	if c.cfg.BaseURL != "http://example.com" {
+		t.Fatalf("BaseURL = %q, want %q", c.cfg.BaseURL, "http://example.com")
+	}
+}
