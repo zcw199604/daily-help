@@ -18,9 +18,15 @@ func main() {
 	flag.StringVar(&configPath, "config", "config.yaml", "配置文件路径（YAML）")
 	flag.Parse()
 
+	bootstrapLogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(bootstrapLogger)
+
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		panic(err)
+		slog.Error("加载配置失败", "path", configPath, "error", err)
+		os.Exit(1)
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{

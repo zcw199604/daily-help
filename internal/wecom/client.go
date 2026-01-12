@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 type ClientConfig struct {
@@ -27,6 +29,8 @@ type Client struct {
 	mu             sync.Mutex
 	accessToken    string
 	accessTokenExp time.Time
+
+	tokenSF singleflight.Group
 }
 
 func NewClient(cfg ClientConfig, httpClient *http.Client) *Client {
@@ -99,23 +103,58 @@ func (c *Client) sendMessage(ctx context.Context, payload map[string]interface{}
 }
 
 func (c *Client) getAccessToken(ctx context.Context) (string, error) {
-	c.mu.Lock()
-	if c.accessToken != "" && time.Now().Before(c.accessTokenExp.Add(-2*time.Minute)) {
-		token := c.accessToken
-		c.mu.Unlock()
+	if token, ok := c.peekAccessToken(); ok {
 		return token, nil
 	}
-	c.mu.Unlock()
 
+	v, err, _ := c.tokenSF.Do("access_token", func() (interface{}, error) {
+		if token, ok := c.peekAccessToken(); ok {
+			return token, nil
+		}
+
+		token, exp, err := c.fetchAccessToken(ctx)
+		if err != nil {
+			return "", err
+		}
+
+		c.mu.Lock()
+		c.accessToken = token
+		c.accessTokenExp = exp
+		c.mu.Unlock()
+		return token, nil
+	})
+	if err != nil {
+		return "", err
+	}
+	token, _ := v.(string)
+	if token == "" {
+		return "", errors.New("wecom gettoken 返回为空")
+	}
+	return token, nil
+}
+
+func (c *Client) peekAccessToken() (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.accessToken == "" {
+		return "", false
+	}
+	if time.Now().After(c.accessTokenExp.Add(-2 * time.Minute)) {
+		return "", false
+	}
+	return c.accessToken, true
+}
+
+func (c *Client) fetchAccessToken(ctx context.Context) (string, time.Time, error) {
 	u := c.cfg.APIBaseURL + "/gettoken?corpid=" + url.QueryEscape(c.cfg.CorpID) + "&corpsecret=" + url.QueryEscape(c.cfg.Secret)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	defer res.Body.Close()
 
@@ -126,19 +165,14 @@ func (c *Client) getAccessToken(ctx context.Context) (string, error) {
 		ExpiresIn   int    `json:"expires_in"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	if out.ErrCode != 0 {
-		return "", fmt.Errorf("wecom gettoken error: %d %s", out.ErrCode, out.ErrMsg)
+		return "", time.Time{}, fmt.Errorf("wecom gettoken error: %d %s", out.ErrCode, out.ErrMsg)
 	}
 	if out.AccessToken == "" || out.ExpiresIn == 0 {
-		return "", errors.New("wecom gettoken 返回为空")
+		return "", time.Time{}, errors.New("wecom gettoken 返回为空")
 	}
 
-	c.mu.Lock()
-	c.accessToken = out.AccessToken
-	c.accessTokenExp = time.Now().Add(time.Duration(out.ExpiresIn) * time.Second)
-	c.mu.Unlock()
-
-	return out.AccessToken, nil
+	return out.AccessToken, time.Now().Add(time.Duration(out.ExpiresIn) * time.Second), nil
 }

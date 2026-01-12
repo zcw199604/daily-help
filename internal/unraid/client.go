@@ -11,31 +11,78 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"sync"
-	"time"
 )
 
 type ClientConfig struct {
-	Endpoint            string
-	APIKey              string
-	Origin              string
-	ForceUpdateMutation string
+	Endpoint string
+	APIKey   string
+	Origin   string
+
+	// 容器日志字段（默认 logs）。如 logs 返回对象，可通过 LogsPayloadField 指定承载日志文本的字段名。
+	LogsField        string
+	LogsTailArg      *string
+	LogsPayloadField string
+
+	// 容器资源统计字段（默认 stats）。如 stats 返回对象，StatsFields 用于指定 selection set。
+	StatsField  string
+	StatsFields []string
+
+	// “强制更新”mutation 配置（默认 update）。默认形态：docker { update(id: PrefixedID!) { __typename } }
+	ForceUpdateMutation     string
+	ForceUpdateArgName      string
+	ForceUpdateArgType      string
+	ForceUpdateReturnFields []string
 }
 
 type Client struct {
 	cfg        ClientConfig
 	httpClient *http.Client
-
-	mu               sync.Mutex
-	inspectMeta      containerInspectMeta
-	inspectMetaExpAt time.Time
-	inspectMetaOK    bool
 }
 
 func NewClient(cfg ClientConfig, httpClient *http.Client) *Client {
+	applyClientDefaults(&cfg)
 	return &Client{
 		cfg:        cfg,
 		httpClient: httpClient,
+	}
+}
+
+var defaultStatsFields = []string{
+	"cpuPercent",
+	"memUsage",
+	"memLimit",
+	"netIO",
+	"blockIO",
+	"pids",
+}
+
+func applyClientDefaults(cfg *ClientConfig) {
+	if strings.TrimSpace(cfg.LogsField) == "" {
+		cfg.LogsField = "logs"
+	}
+	if cfg.LogsTailArg == nil {
+		v := "tail"
+		cfg.LogsTailArg = &v
+	}
+
+	if strings.TrimSpace(cfg.StatsField) == "" {
+		cfg.StatsField = "stats"
+	}
+	if cfg.StatsFields == nil {
+		cfg.StatsFields = append([]string(nil), defaultStatsFields...)
+	}
+
+	if strings.TrimSpace(cfg.ForceUpdateMutation) == "" {
+		cfg.ForceUpdateMutation = "update"
+	}
+	if strings.TrimSpace(cfg.ForceUpdateArgName) == "" {
+		cfg.ForceUpdateArgName = "id"
+	}
+	if strings.TrimSpace(cfg.ForceUpdateArgType) == "" {
+		cfg.ForceUpdateArgType = "PrefixedID!"
+	}
+	if cfg.ForceUpdateReturnFields == nil {
+		cfg.ForceUpdateReturnFields = []string{"__typename"}
 	}
 }
 
@@ -88,16 +135,10 @@ func (c *Client) ForceUpdateContainerByName(ctx context.Context, name string) er
 	if err != nil {
 		return err
 	}
-
-	meta, supported, err := c.detectDockerForceUpdateMutation(ctx)
-	if err != nil {
-		return err
+	if strings.TrimSpace(c.cfg.ForceUpdateMutation) == "" {
+		return errors.New("未配置 unraid.force_update_mutation（已移除 introspection 探测，请在 config.yaml 显式指定）")
 	}
-	if !supported {
-		return fmt.Errorf("当前 Unraid GraphQL API 未发现可用的“强制更新”mutation（可升级 Unraid Connect 插件或更换实现路径）")
-	}
-
-	return c.callDockerForceUpdateMutation(ctx, meta, id)
+	return c.callDockerForceUpdateMutation(ctx, id)
 }
 
 type ContainerStatus struct {
@@ -137,22 +178,17 @@ func (c *Client) GetContainerStatusByName(ctx context.Context, name string) (Con
 }
 
 func (c *Client) GetContainerStatsByName(ctx context.Context, name string) (ContainerStats, error) {
-	meta, err := c.getContainerInspectMeta(ctx)
-	if err != nil {
-		return ContainerStats{}, err
-	}
-	if meta.ContainerTypeName == "" || meta.StatsField == nil {
-		return ContainerStats{}, errors.New("当前 Unraid GraphQL API 未发现可用的资源统计字段（可能需要升级 Unraid Connect 插件或更换实现路径）")
-	}
-
-	fieldExpr, err := c.buildStatsFieldExpr(ctx, *meta.StatsField)
+	fieldName, fieldExpr, err := c.buildStatsFieldExpr()
 	if err != nil {
 		return ContainerStats{}, err
 	}
 
-	ct, v, err := c.queryContainerExtraByName(ctx, name, meta.StatsField.Name, fieldExpr, "", nil)
+	ct, v, err := c.queryContainerExtraByName(ctx, name, fieldName, fieldExpr)
 	if err != nil {
-		return ContainerStats{}, err
+		return ContainerStats{}, wrapMaybeUnsupported(err, "资源统计", []string{
+			"unraid.stats_field",
+			"unraid.stats_fields",
+		})
 	}
 
 	return ContainerStats{
@@ -164,22 +200,18 @@ func (c *Client) GetContainerStatsByName(ctx context.Context, name string) (Cont
 
 func (c *Client) GetContainerLogsByName(ctx context.Context, name string, tail int) (ContainerLogs, error) {
 	tail = clampInt(tail, 1, 200)
-	meta, err := c.getContainerInspectMeta(ctx)
-	if err != nil {
-		return ContainerLogs{}, err
-	}
-	if meta.ContainerTypeName == "" || meta.LogsField == nil {
-		return ContainerLogs{}, errors.New("当前 Unraid GraphQL API 未发现可用的日志查询字段（可能需要升级 Unraid Connect 插件或更换实现路径）")
-	}
-
-	fieldExpr, varDef, vars, extractPath, err := c.buildLogsFieldExpr(ctx, *meta.LogsField, tail)
+	fieldName, fieldExpr, extractPath, err := c.buildLogsFieldExpr(tail)
 	if err != nil {
 		return ContainerLogs{}, err
 	}
 
-	ct, v, err := c.queryContainerExtraByName(ctx, name, meta.LogsField.Name, fieldExpr, varDef, vars)
+	ct, v, err := c.queryContainerExtraByName(ctx, name, fieldName, fieldExpr)
 	if err != nil {
-		return ContainerLogs{}, err
+		return ContainerLogs{}, wrapMaybeUnsupported(err, "日志", []string{
+			"unraid.logs_field",
+			"unraid.logs_tail_arg",
+			"unraid.logs_payload_field",
+		})
 	}
 
 	raw, ok := extractByPath(v, extractPath)
@@ -392,157 +424,11 @@ func (c *Client) do(ctx context.Context, query string, variables map[string]inte
 	return json.Unmarshal(raw.Data, out)
 }
 
-type containerInspectMeta struct {
-	DockerQueryTypeName string
-	ContainerTypeName   string
-	LogsField           *gqlFieldMeta
-	StatsField          *gqlFieldMeta
-}
-
-func (c *Client) getContainerInspectMeta(ctx context.Context) (containerInspectMeta, error) {
-	c.mu.Lock()
-	if c.inspectMetaOK && time.Now().Before(c.inspectMetaExpAt) {
-		meta := c.inspectMeta
-		c.mu.Unlock()
-		return meta, nil
-	}
-	c.mu.Unlock()
-
-	meta, err := c.detectContainerInspectMeta(ctx)
-	if err != nil {
-		return containerInspectMeta{}, err
-	}
-
-	c.mu.Lock()
-	c.inspectMeta = meta
-	c.inspectMetaOK = true
-	c.inspectMetaExpAt = time.Now().Add(10 * time.Minute)
-	c.mu.Unlock()
-	return meta, nil
-}
-
-func (c *Client) detectContainerInspectMeta(ctx context.Context) (containerInspectMeta, error) {
-	dockerTypeName, err := c.lookupDockerQueryTypeName(ctx)
-	if err != nil {
-		return containerInspectMeta{}, err
-	}
-	if dockerTypeName == "" {
-		return containerInspectMeta{}, nil
-	}
-
-	fields, err := c.lookupTypeFieldsMeta(ctx, dockerTypeName)
-	if err != nil {
-		return containerInspectMeta{}, err
-	}
-
-	containersField, ok := fields["containers"]
-	if !ok {
-		return containerInspectMeta{}, nil
-	}
-
-	containerTypeName := containersField.Type.NamedTypeName()
-	if containerTypeName == "" {
-		return containerInspectMeta{}, nil
-	}
-
-	containerFields, err := c.lookupTypeFieldsMeta(ctx, containerTypeName)
-	if err != nil {
-		return containerInspectMeta{}, err
-	}
-
-	var logsField *gqlFieldMeta
-	if f, ok := pickField(containerFields, []string{
-		"logs",
-		"log",
-		"containerLogs",
-		"dockerLogs",
-	}); ok {
-		ff := f
-		logsField = &ff
-	} else if f, ok := pickFieldByContains(containerFields, []string{"log"}); ok {
-		ff := f
-		logsField = &ff
-	}
-
-	var statsField *gqlFieldMeta
-	if f, ok := pickField(containerFields, []string{
-		"stats",
-		"stat",
-		"metrics",
-	}); ok {
-		ff := f
-		statsField = &ff
-	} else if f, ok := pickFieldByContains(containerFields, []string{"stat", "metric"}); ok {
-		ff := f
-		statsField = &ff
-	}
-
-	return containerInspectMeta{
-		DockerQueryTypeName: dockerTypeName,
-		ContainerTypeName:   containerTypeName,
-		LogsField:           logsField,
-		StatsField:          statsField,
-	}, nil
-}
-
-func (c *Client) lookupDockerQueryTypeName(ctx context.Context) (string, error) {
-	const q = `query { __schema { queryType { fields { name type { name kind ofType { name kind ofType { name kind } } } } } } }`
-	var resp struct {
-		Schema struct {
-			QueryType struct {
-				Fields []struct {
-					Name string `json:"name"`
-					Type struct {
-						Name   string `json:"name"`
-						Kind   string `json:"kind"`
-						OfType *struct {
-							Name   string `json:"name"`
-							Kind   string `json:"kind"`
-							OfType *struct {
-								Name string `json:"name"`
-								Kind string `json:"kind"`
-							} `json:"ofType"`
-						} `json:"ofType"`
-					} `json:"type"`
-				} `json:"fields"`
-			} `json:"queryType"`
-		} `json:"__schema"`
-	}
-	if err := c.do(ctx, q, nil, &resp); err != nil {
-		return "", err
-	}
-
-	for _, f := range resp.Schema.QueryType.Fields {
-		if f.Name != "docker" {
-			continue
-		}
-		if f.Type.Name != "" {
-			return f.Type.Name, nil
-		}
-		if f.Type.OfType != nil && f.Type.OfType.Name != "" {
-			return f.Type.OfType.Name, nil
-		}
-	}
-	return "", nil
-}
-
-func (c *Client) queryContainerExtraByName(
-	ctx context.Context,
-	name string,
-	fieldName string,
-	fieldExpr string,
-	varDef string,
-	vars map[string]interface{},
-) (containerInfo, interface{}, error) {
-	varDef = strings.TrimSpace(varDef)
-	header := "query"
-	if varDef != "" {
-		header += varDef
-	}
-	q := fmt.Sprintf(`%s { docker { containers { id names state status %s } } }`, header, fieldExpr)
+func (c *Client) queryContainerExtraByName(ctx context.Context, name string, fieldName string, fieldExpr string) (containerInfo, interface{}, error) {
+	q := fmt.Sprintf(`query { docker { containers { id names state status %s } } }`, fieldExpr)
 
 	var raw map[string]interface{}
-	if err := c.do(ctx, q, vars, &raw); err != nil {
+	if err := c.do(ctx, q, nil, &raw); err != nil {
 		return containerInfo{}, nil, err
 	}
 
@@ -603,157 +489,55 @@ func pickContainerObjectByName(containers []interface{}, name string) (container
 	return containerInfo{}, nil, fmt.Errorf("未找到容器：%s", name)
 }
 
-func (c *Client) buildStatsFieldExpr(ctx context.Context, field gqlFieldMeta) (string, error) {
-	for _, a := range field.Args {
-		if a.Type.Kind == "NON_NULL" {
-			return "", fmt.Errorf("资源统计字段需要必填参数，暂不支持: %s.%s", c.inspectMeta.ContainerTypeName, field.Name)
-		}
+func (c *Client) buildStatsFieldExpr() (fieldName string, fieldExpr string, err error) {
+	fieldName = strings.TrimSpace(c.cfg.StatsField)
+	if fieldName == "" {
+		return "", "", errors.New("未配置 unraid.stats_field")
 	}
 
-	if !field.Type.RequiresSelectionSet() {
-		return field.Name, nil
+	fields := c.cfg.StatsFields
+	if len(fields) == 0 {
+		return fieldName, fieldName, nil
 	}
-
-	typeName := field.Type.NamedTypeName()
-	if typeName == "" {
-		return field.Name + ` { __typename }`, nil
-	}
-
-	fields, err := c.lookupTypeFieldsMeta(ctx, typeName)
-	if err != nil {
-		return field.Name + ` { __typename }`, nil
-	}
-
-	var picks []string
-	for name, meta := range fields {
-		if meta.Type.RequiresSelectionSet() {
-			continue
-		}
-		picks = append(picks, name)
-	}
-	sort.Strings(picks)
-	if len(picks) == 0 {
-		picks = []string{"__typename"}
-	}
-	return field.Name + " { " + strings.Join(picks, " ") + " }", nil
+	return fieldName, fieldName + " { " + strings.Join(fields, " ") + " }", nil
 }
 
-func (c *Client) buildLogsFieldExpr(ctx context.Context, field gqlFieldMeta, tail int) (fieldExpr string, varDef string, vars map[string]interface{}, extractPath []string, err error) {
-	limitArg, ok := pickLogsLimitArg(field.Args)
-	if ok {
-		varDef = fmt.Sprintf("($tail: %s)", limitArg.Type.String())
-		vars = map[string]interface{}{"tail": tail}
-		fieldExpr = fmt.Sprintf("%s(%s: $tail)", field.Name, limitArg.Name)
-	} else {
-		fieldExpr = field.Name
+func (c *Client) buildLogsFieldExpr(tail int) (fieldName string, fieldExpr string, extractPath []string, err error) {
+	fieldName = strings.TrimSpace(c.cfg.LogsField)
+	if fieldName == "" {
+		return "", "", nil, errors.New("未配置 unraid.logs_field")
 	}
 
-	for _, a := range field.Args {
-		if a.Type.Kind != "NON_NULL" {
-			continue
-		}
-		if ok && a.Name == limitArg.Name {
-			continue
-		}
-		return "", "", nil, nil, fmt.Errorf("日志字段需要必填参数，暂不支持: %s.%s", c.inspectMeta.ContainerTypeName, field.Name)
+	var tailArg string
+	if c.cfg.LogsTailArg != nil {
+		tailArg = strings.TrimSpace(*c.cfg.LogsTailArg)
 	}
 
-	if !field.Type.RequiresSelectionSet() {
-		return fieldExpr, varDef, vars, nil, nil
+	fieldExpr = fieldName
+	if tailArg != "" {
+		fieldExpr = fmt.Sprintf("%s(%s: %d)", fieldName, tailArg, tail)
 	}
 
-	typeName := field.Type.NamedTypeName()
-	if typeName == "" {
-		return "", "", nil, nil, fmt.Errorf("日志字段返回类型未知，暂不支持: %s.%s", c.inspectMeta.ContainerTypeName, field.Name)
+	payload := strings.TrimSpace(c.cfg.LogsPayloadField)
+	if payload != "" {
+		fieldExpr = fieldExpr + " { " + payload + " }"
+		extractPath = []string{payload}
 	}
-
-	fields, err2 := c.lookupTypeFieldsMeta(ctx, typeName)
-	if err2 != nil {
-		return "", "", nil, nil, fmt.Errorf("日志字段返回类型 introspection 失败: %v", err2)
-	}
-
-	payload, payloadPath, ok := pickLogsPayloadField(fields)
-	if !ok {
-		return "", "", nil, nil, fmt.Errorf("日志字段返回类型结构复杂，暂不支持: %s", typeName)
-	}
-
-	if payload.Type.RequiresSelectionSet() {
-		return "", "", nil, nil, fmt.Errorf("日志字段返回类型结构复杂，暂不支持: %s.%s", typeName, payload.Name)
-	}
-
-	fieldExpr = fieldExpr + fmt.Sprintf(" { %s }", payload.Name)
-	return fieldExpr, varDef, vars, payloadPath, nil
+	return fieldName, fieldExpr, extractPath, nil
 }
 
-func pickLogsLimitArg(args []gqlArgMeta) (gqlArgMeta, bool) {
-	prefer := []string{"tail", "lines", "limit", "count", "n"}
-	for _, name := range prefer {
-		for _, a := range args {
-			if a.Name == name {
-				return a, true
-			}
-		}
+func wrapMaybeUnsupported(err error, feature string, cfgKeys []string) error {
+	if err == nil {
+		return nil
 	}
-	for _, a := range args {
-		lower := strings.ToLower(a.Name)
-		if strings.Contains(lower, "tail") || strings.Contains(lower, "line") || strings.Contains(lower, "limit") || strings.Contains(lower, "count") {
-			return a, true
-		}
+	msg := err.Error()
+	if strings.HasPrefix(msg, "graphql error:") ||
+		strings.Contains(msg, "Cannot query field") ||
+		strings.Contains(msg, "Unknown argument") ||
+		strings.Contains(msg, "Unknown type") {
+		return fmt.Errorf("%s查询失败：%w（可在 config.yaml 配置 %s）", feature, err, strings.Join(cfgKeys, " / "))
 	}
-	return gqlArgMeta{}, false
-}
-
-func pickLogsPayloadField(fields map[string]gqlFieldMeta) (gqlFieldMeta, []string, bool) {
-	prefer := []string{"lines", "content", "text", "message", "log", "logs", "value", "raw", "data"}
-	for _, name := range prefer {
-		if f, ok := fields[name]; ok {
-			return f, []string{name}, true
-		}
-	}
-	for name, f := range fields {
-		lower := strings.ToLower(name)
-		if strings.Contains(lower, "line") || strings.Contains(lower, "content") || strings.Contains(lower, "text") || strings.Contains(lower, "message") {
-			return f, []string{name}, true
-		}
-	}
-	return gqlFieldMeta{}, nil, false
-}
-
-func pickField(fields map[string]gqlFieldMeta, candidates []string) (gqlFieldMeta, bool) {
-	for _, name := range candidates {
-		if f, ok := fields[name]; ok {
-			return f, true
-		}
-	}
-	return gqlFieldMeta{}, false
-}
-
-func pickFieldByContains(fields map[string]gqlFieldMeta, keywords []string) (gqlFieldMeta, bool) {
-	var names []string
-	for n := range fields {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
-		lower := strings.ToLower(name)
-		for _, kw := range keywords {
-			if strings.Contains(lower, strings.ToLower(kw)) {
-				return fields[name], true
-			}
-		}
-	}
-	return gqlFieldMeta{}, false
-}
-
-func (t gqlTypeRef) NamedTypeName() string {
-	if t.Name != "" {
-		return t.Name
-	}
-	if t.OfType != nil {
-		return t.OfType.NamedTypeName()
-	}
-	return ""
+	return err
 }
 
 func clampInt(v, minV, maxV int) int {
@@ -831,250 +615,33 @@ func parseUptimeFromDockerStatus(status string) string {
 	return s
 }
 
-type dockerMutationMeta struct {
-	FieldName            string
-	ArgName              string
-	ArgType              string
-	ReturnNeedsSelection bool
-}
-
-func (c *Client) detectDockerForceUpdateMutation(ctx context.Context) (dockerMutationMeta, bool, error) {
-	dockerTypeName, err := c.lookupDockerMutationTypeName(ctx)
-	if err != nil {
-		return dockerMutationMeta{}, false, err
+func (c *Client) callDockerForceUpdateMutation(ctx context.Context, id string) error {
+	mutation := strings.TrimSpace(c.cfg.ForceUpdateMutation)
+	if mutation == "" {
+		return errors.New("未配置 unraid.force_update_mutation")
 	}
-	if dockerTypeName == "" {
-		return dockerMutationMeta{}, false, nil
+	argName := strings.TrimSpace(c.cfg.ForceUpdateArgName)
+	if argName == "" {
+		argName = "id"
+	}
+	argType := strings.TrimSpace(c.cfg.ForceUpdateArgType)
+	if argType == "" {
+		argType = "PrefixedID!"
 	}
 
-	fields, err := c.lookupTypeFieldsMeta(ctx, dockerTypeName)
-	if err != nil {
-		return dockerMutationMeta{}, false, err
-	}
-
-	if c.cfg.ForceUpdateMutation != "" {
-		f, ok := fields[c.cfg.ForceUpdateMutation]
-		if !ok {
-			return dockerMutationMeta{}, false, fmt.Errorf("未找到配置的 unraid.force_update_mutation: %s", c.cfg.ForceUpdateMutation)
-		}
-		argName, argType, ok := pickIDArg(f.Args)
-		if !ok {
-			return dockerMutationMeta{}, false, fmt.Errorf("unraid.force_update_mutation 参数不支持 id/dockerId: %s", c.cfg.ForceUpdateMutation)
-		}
-		return dockerMutationMeta{
-			FieldName:            c.cfg.ForceUpdateMutation,
-			ArgName:              argName,
-			ArgType:              argType,
-			ReturnNeedsSelection: f.Type.RequiresSelectionSet(),
-		}, true, nil
-	}
-
-	candidates := []string{
-		"forceUpdate",
-		"forceUpdateDocker",
-		"force_update",
-		"update",
-		"updateContainer",
-		"updateDocker",
-		"update_container",
-		"recreate",
-		"pull",
-	}
-	for _, name := range candidates {
-		f, ok := fields[name]
-		if !ok {
-			continue
-		}
-
-		argName, argType, ok := pickIDArg(f.Args)
-		if !ok {
-			continue
-		}
-
-		meta := dockerMutationMeta{
-			FieldName:            name,
-			ArgName:              argName,
-			ArgType:              argType,
-			ReturnNeedsSelection: f.Type.RequiresSelectionSet(),
-		}
-		return meta, true, nil
-	}
-
-	var names []string
-	for name := range fields {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		lower := strings.ToLower(name)
-		if !strings.Contains(lower, "update") && !strings.Contains(lower, "pull") && !strings.Contains(lower, "recreate") {
-			continue
-		}
-
-		f, ok := fields[name]
-		if !ok {
-			continue
-		}
-		argName, argType, ok := pickIDArg(f.Args)
-		if !ok {
-			continue
-		}
-		meta := dockerMutationMeta{
-			FieldName:            name,
-			ArgName:              argName,
-			ArgType:              argType,
-			ReturnNeedsSelection: f.Type.RequiresSelectionSet(),
-		}
-		return meta, true, nil
-	}
-
-	return dockerMutationMeta{}, false, nil
-}
-
-func (c *Client) lookupDockerMutationTypeName(ctx context.Context) (string, error) {
-	const q = `query { __schema { mutationType { fields { name type { name kind ofType { name kind ofType { name kind } } } } } } }`
-	var resp struct {
-		Schema struct {
-			MutationType struct {
-				Fields []struct {
-					Name string `json:"name"`
-					Type struct {
-						Name   string `json:"name"`
-						Kind   string `json:"kind"`
-						OfType *struct {
-							Name   string `json:"name"`
-							Kind   string `json:"kind"`
-							OfType *struct {
-								Name string `json:"name"`
-								Kind string `json:"kind"`
-							} `json:"ofType"`
-						} `json:"ofType"`
-					} `json:"type"`
-				} `json:"fields"`
-			} `json:"mutationType"`
-		} `json:"__schema"`
-	}
-	if err := c.do(ctx, q, nil, &resp); err != nil {
-		return "", err
-	}
-
-	for _, f := range resp.Schema.MutationType.Fields {
-		if f.Name != "docker" {
-			continue
-		}
-		if f.Type.Name != "" {
-			return f.Type.Name, nil
-		}
-		if f.Type.OfType != nil && f.Type.OfType.Name != "" {
-			return f.Type.OfType.Name, nil
-		}
-	}
-	return "", nil
-}
-
-type gqlTypeRef struct {
-	Kind   string      `json:"kind"`
-	Name   string      `json:"name"`
-	OfType *gqlTypeRef `json:"ofType"`
-}
-
-func (t gqlTypeRef) String() string {
-	switch t.Kind {
-	case "NON_NULL":
-		if t.OfType == nil {
-			return "String!"
-		}
-		return t.OfType.String() + "!"
-	case "LIST":
-		if t.OfType == nil {
-			return "[String]"
-		}
-		return "[" + t.OfType.String() + "]"
-	default:
-		if t.Name != "" {
-			return t.Name
-		}
-		if t.OfType != nil {
-			return t.OfType.String()
-		}
-		return "String"
-	}
-}
-
-func (t gqlTypeRef) RequiresSelectionSet() bool {
-	base := t.baseKind()
-	return base == "OBJECT" || base == "INTERFACE" || base == "UNION"
-}
-
-func (t gqlTypeRef) baseKind() string {
-	switch t.Kind {
-	case "NON_NULL", "LIST":
-		if t.OfType == nil {
-			return t.Kind
-		}
-		return t.OfType.baseKind()
-	default:
-		return t.Kind
-	}
-}
-
-type gqlArgMeta struct {
-	Name string     `json:"name"`
-	Type gqlTypeRef `json:"type"`
-}
-
-type gqlFieldMeta struct {
-	Name string       `json:"name"`
-	Args []gqlArgMeta `json:"args"`
-	Type gqlTypeRef   `json:"type"`
-}
-
-func (c *Client) lookupTypeFieldsMeta(ctx context.Context, typeName string) (map[string]gqlFieldMeta, error) {
-	const q = `query($name: String!) { __type(name: $name) { fields { name args { name type { kind name ofType { kind name ofType { kind name ofType { kind name } } } } } type { kind name ofType { kind name ofType { kind name ofType { kind name } } } } } } }`
-	var resp struct {
-		Type struct {
-			Fields []gqlFieldMeta `json:"fields"`
-		} `json:"__type"`
-	}
-	if err := c.do(ctx, q, map[string]interface{}{"name": typeName}, &resp); err != nil {
-		return nil, err
-	}
-	ret := make(map[string]gqlFieldMeta, len(resp.Type.Fields))
-	for _, f := range resp.Type.Fields {
-		if f.Name == "" {
-			continue
-		}
-		ret[f.Name] = f
-	}
-	return ret, nil
-}
-
-func pickIDArg(args []gqlArgMeta) (string, string, bool) {
-	for _, a := range args {
-		if a.Name == "id" {
-			return "id", a.Type.String(), true
-		}
-	}
-	for _, a := range args {
-		if a.Name == "dockerId" {
-			return "dockerId", a.Type.String(), true
-		}
-	}
-	if len(args) == 1 {
-		return args[0].Name, args[0].Type.String(), true
-	}
-	return "", "", false
-}
-
-func (c *Client) callDockerForceUpdateMutation(ctx context.Context, meta dockerMutationMeta, id string) error {
 	selection := ""
-	if meta.ReturnNeedsSelection {
-		selection = ` { __typename }`
+	if len(c.cfg.ForceUpdateReturnFields) > 0 {
+		selection = " { " + strings.Join(c.cfg.ForceUpdateReturnFields, " ") + " }"
 	}
-	q := fmt.Sprintf(`mutation ForceUpdate($v: %s) { docker { %s(%s: $v)%s } }`, meta.ArgType, meta.FieldName, meta.ArgName, selection)
-	var raw map[string]interface{}
-	if err := c.do(ctx, q, map[string]interface{}{"v": id}, &raw); err != nil {
-		return err
+
+	q := fmt.Sprintf(`mutation ForceUpdate($v: %s) { docker { %s(%s: $v)%s } }`, argType, mutation, argName, selection)
+	if err := c.do(ctx, q, map[string]interface{}{"v": id}, nil); err != nil {
+		return wrapMaybeUnsupported(err, "强制更新", []string{
+			"unraid.force_update_mutation",
+			"unraid.force_update_arg",
+			"unraid.force_update_arg_type",
+			"unraid.force_update_return_fields",
+		})
 	}
 	return nil
 }

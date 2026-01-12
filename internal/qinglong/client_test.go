@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -150,5 +151,83 @@ func TestClient_TokenCachingAndAPIs(t *testing.T) {
 	}
 	if atomic.LoadInt32(&logHits) != 1 {
 		t.Fatalf("log hits = %d, want 1", logHits)
+	}
+}
+
+func TestClient_ConcurrentTokenRefresh(t *testing.T) {
+	t.Parallel()
+
+	var tokenHits int32
+	var listHits int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/open/auth/token":
+			atomic.AddInt32(&tokenHits, 1)
+			time.Sleep(20 * time.Millisecond)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"code": 200,
+				"data": map[string]interface{}{
+					"token":      "AT",
+					"token_type": "Bearer",
+					"expiration": time.Now().Add(1 * time.Hour).Unix(),
+				},
+			})
+			return
+
+		case r.URL.Path == "/open/crons" && r.Method == http.MethodGet:
+			atomic.AddInt32(&listHits, 1)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"code": 200,
+				"data": map[string]interface{}{
+					"data":  []map[string]interface{}{},
+					"total": 0,
+				},
+			})
+			return
+
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := NewClient(ClientConfig{
+		BaseURL:      srv.URL,
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}, srv.Client())
+	if err != nil {
+		t.Fatalf("NewClient() error: %v", err)
+	}
+
+	ctx := context.Background()
+
+	const n = 10
+	var wg sync.WaitGroup
+	wg.Add(n)
+	errCh := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			if _, err := c.ListCrons(ctx, ListCronsParams{SearchValue: "a", Page: 1, Size: 10}); err != nil {
+				errCh <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("ListCrons() error: %v", err)
+		}
+	}
+
+	if atomic.LoadInt32(&tokenHits) != 1 {
+		t.Fatalf("token hits = %d, want 1", tokenHits)
+	}
+	if atomic.LoadInt32(&listHits) != n {
+		t.Fatalf("list hits = %d, want %d", listHits, n)
 	}
 }

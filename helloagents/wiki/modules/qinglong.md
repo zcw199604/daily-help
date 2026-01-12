@@ -35,6 +35,12 @@
 **模块:** qinglong
 支持获取任务最近日志并在企业微信中摘要回显，避免超长消息。
 
+### 需求: OpenAPI token 缓存与并发刷新治理
+**模块:** qinglong
+青龙 OpenAPI 依赖 `/open/auth/token` 获取 token：
+- 本地缓存 token 与过期时间
+- 并发场景使用 singleflight 合并刷新请求，避免 token 过期时并发打满上游
+
 ## API接口
 本模块不直接对外提供 HTTP API，通过内部接口供 core 调用；对青龙侧通过 OpenAPI 发起 HTTP 请求（如 `/open/auth/token`、`/open/crons` 等）。
 
@@ -49,4 +55,4 @@
 
 ## 变更历史
 - [202601121219_wecom_service_framework](../../history/2026-01/202601121219_wecom_service_framework/) - 企业微信多服务框架 + 青龙(QL)对接
-
+- 2026-01-12: OpenAPI token 刷新引入 singleflight，抑制并发刷新击穿

@@ -12,6 +12,8 @@
 | 202601120954 | cicd_dockerhub | 功能 | ✅已完成 | [202601120954_cicd_dockerhub](2026-01/202601120954_cicd_dockerhub/) |
 | 202601121216 | unraid_container_inspect | 功能 | ✅已完成 | [202601121216_unraid_container_inspect](2026-01/202601121216_unraid_container_inspect/) |
 | 202601121219 | wecom_service_framework | 功能 | ✅已完成 | [202601121219_wecom_service_framework](2026-01/202601121219_wecom_service_framework/) |
+| 202601121409 | token_state_hardening | 修复 | ✅已完成 | [202601121409_token_state_hardening](2026-01/202601121409_token_state_hardening/) |
+| 202601121424 | stability_refactor | 重构 | ✅已完成 | [202601121424_stability_refactor](2026-01/202601121424_stability_refactor/) |
 
 ---
 
@@ -23,3 +25,5 @@
 - [202601120954_cicd_dockerhub](2026-01/202601120954_cicd_dockerhub/) - GitHub Actions 构建并推送 Docker Hub 镜像
 - [202601121216_unraid_container_inspect](2026-01/202601121216_unraid_container_inspect/) - 容器查看：状态/运行时长/资源使用/最新日志
 - [202601121219_wecom_service_framework](2026-01/202601121219_wecom_service_framework/) - 企业微信多服务框架 + 青龙(QL)对接
+- [202601121409_token_state_hardening](2026-01/202601121409_token_state_hardening/) - Token 并发刷新治理 + StateStore 过期清理
+- [202601121424_stability_refactor](2026-01/202601121424_stability_refactor/) - Unraid 去 introspection + 配置化超时 + 回调错误处理

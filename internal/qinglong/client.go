@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 type ClientConfig struct {
@@ -29,6 +31,8 @@ type Client struct {
 	mu       sync.Mutex
 	token    string
 	tokenExp time.Time
+
+	tokenSF singleflight.Group
 }
 
 func NewClient(cfg ClientConfig, httpClient *http.Client) (*Client, error) {
@@ -245,36 +249,62 @@ type tokenResponse struct {
 }
 
 func (c *Client) getToken(ctx context.Context) (string, time.Time, error) {
-	c.mu.Lock()
-	if c.token != "" && time.Now().Before(c.tokenExp.Add(-2*time.Minute)) {
-		token := c.token
-		exp := c.tokenExp
-		c.mu.Unlock()
+	if token, exp, ok := c.peekToken(); ok {
 		return token, exp, nil
 	}
-	c.mu.Unlock()
 
-	q := url.Values{}
-	q.Set("client_id", c.cfg.ClientID)
-	q.Set("client_secret", c.cfg.ClientSecret)
-	q.Set("t", strconv.FormatInt(time.Now().Unix(), 10))
+	type tokenResult struct {
+		Token string
+		Exp   time.Time
+	}
 
-	var out tokenResponse
-	if err := c.do(ctx, http.MethodGet, "/open/auth/token", q, nil, &out, false); err != nil {
+	v, err, _ := c.tokenSF.Do("token", func() (interface{}, error) {
+		if token, exp, ok := c.peekToken(); ok {
+			return tokenResult{Token: token, Exp: exp}, nil
+		}
+
+		q := url.Values{}
+		q.Set("client_id", c.cfg.ClientID)
+		q.Set("client_secret", c.cfg.ClientSecret)
+		q.Set("t", strconv.FormatInt(time.Now().Unix(), 10))
+
+		var out tokenResponse
+		if err := c.do(ctx, http.MethodGet, "/open/auth/token", q, nil, &out, false); err != nil {
+			return tokenResult{}, err
+		}
+		if strings.TrimSpace(out.Token) == "" || out.Expiration <= 0 {
+			return tokenResult{}, errors.New("qinglong auth/token 返回为空")
+		}
+
+		exp := time.Unix(out.Expiration, 0)
+
+		c.mu.Lock()
+		c.token = out.Token
+		c.tokenExp = exp
+		c.mu.Unlock()
+
+		return tokenResult{Token: out.Token, Exp: exp}, nil
+	})
+	if err != nil {
 		return "", time.Time{}, err
 	}
-	if strings.TrimSpace(out.Token) == "" || out.Expiration <= 0 {
+	tr, _ := v.(tokenResult)
+	if strings.TrimSpace(tr.Token) == "" || tr.Exp.IsZero() {
 		return "", time.Time{}, errors.New("qinglong auth/token 返回为空")
 	}
+	return tr.Token, tr.Exp, nil
+}
 
-	exp := time.Unix(out.Expiration, 0)
-
+func (c *Client) peekToken() (string, time.Time, bool) {
 	c.mu.Lock()
-	c.token = out.Token
-	c.tokenExp = exp
-	c.mu.Unlock()
-
-	return out.Token, exp, nil
+	defer c.mu.Unlock()
+	if c.token == "" {
+		return "", time.Time{}, false
+	}
+	if time.Now().After(c.tokenExp.Add(-2 * time.Minute)) {
+		return "", time.Time{}, false
+	}
+	return c.token, c.tokenExp, true
 }
 
 func normalizeBaseURL(raw string) (string, error) {

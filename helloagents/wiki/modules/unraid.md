@@ -16,7 +16,7 @@
 - 重启（restart）
 - 停止（stop）
 - 强制更新（force update）
-  - 说明：强制更新依赖 Unraid GraphQL 提供相应 mutation；如名称不在默认探测列表，可通过配置 `unraid.force_update_mutation` 指定
+  - 说明：强制更新依赖 Unraid GraphQL 提供相应 mutation；默认使用 `update(id: PrefixedID!)`，如不一致需通过配置覆盖（见下文）
 
 ### 需求: 容器查看（状态/资源/日志）
 **模块:** unraid
@@ -31,8 +31,12 @@
   - 数据来源：`docker { containers { id names state status } }`
   - 运行时长：仅在 `status` 以 `Up` 开头时解析并回显
 - **资源/日志:**
-  - 数据来源：优先使用 Unraid Connect GraphQL 的容器字段（如 `stats` / `logs`）
-  - 兼容策略：通过 GraphQL introspection 自动探测字段是否存在；若不支持则返回明确提示（可升级插件或切换实现路径）
+  - 数据来源：优先使用 Unraid Connect GraphQL 的容器字段（默认 `stats` / `logs`）
+  - 兼容策略：不再做 introspection 探测；改为“固定字段 + 配置覆盖”。如上游 Schema 不一致，请在 `config.yaml` 配置：
+    - `unraid.logs_field` / `unraid.logs_tail_arg` / `unraid.logs_payload_field`
+    - `unraid.stats_field` / `unraid.stats_fields`
+    - `unraid.force_update_mutation` / `unraid.force_update_arg` / `unraid.force_update_arg_type` / `unraid.force_update_return_fields`
+  - 提示：当 GraphQL 返回字段/参数错误时，错误信息会带上可配置项提示，便于快速定位
 
 #### 输出限制
 - 日志默认 `tail=50`，可输入 `1~200` 行
@@ -55,6 +59,7 @@ MVP 使用 Unraid Connect 插件提供的 GraphQL API（`/graphql` + `x-api-key`
 - core（接口约定）
 
 ## 变更历史
-- 2026-01-12: 基于 GraphQL API 实现容器 stop/start/restart，并通过 introspection 探测“强制更新”能力
+- 2026-01-12: 基于 GraphQL API 实现容器 stop/start/restart，强制更新能力可配置
 - [202601121216_unraid_container_inspect](../../history/2026-01/202601121216_unraid_container_inspect/) - 容器查看：状态/运行时长/资源使用/最新日志（按 GraphQL 能力探测）
 - [202601121219_wecom_service_framework](../../history/2026-01/202601121219_wecom_service_framework/) - 迁移为 Provider 并接入服务选择菜单（保持“容器/unraid”直达入口）
+- [202601121424_stability_refactor](../../history/2026-01/202601121424_stability_refactor/) - 去 introspection：固定字段 + 配置覆盖（logs/stats/force update）

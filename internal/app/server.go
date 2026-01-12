@@ -17,13 +17,14 @@ import (
 )
 
 type Server struct {
-	cfg    config.Config
-	server *http.Server
+	cfg        config.Config
+	server     *http.Server
+	stateStore *core.StateStore
 }
 
 func NewServer(cfg config.Config) (*Server, error) {
 	httpClient := &http.Client{
-		Timeout: 15 * time.Second,
+		Timeout: cfg.Server.HTTPClientTimeout.ToDuration(),
 	}
 
 	wecomClient := wecom.NewClient(wecom.ClientConfig{
@@ -33,16 +34,27 @@ func NewServer(cfg config.Config) (*Server, error) {
 		Secret:     cfg.WeCom.Secret,
 	}, httpClient)
 
-	stateStore := core.NewStateStore(30 * time.Minute)
+	stateStore := core.NewStateStore(cfg.Core.StateTTL.ToDuration())
 
 	var providers []core.ServiceProvider
 
 	if cfg.Unraid.Endpoint != "" && cfg.Unraid.APIKey != "" {
 		unraidClient := unraid.NewClient(unraid.ClientConfig{
-			Endpoint:            cfg.Unraid.Endpoint,
-			APIKey:              cfg.Unraid.APIKey,
-			Origin:              cfg.Unraid.Origin,
-			ForceUpdateMutation: cfg.Unraid.ForceUpdateMutation,
+			Endpoint: cfg.Unraid.Endpoint,
+			APIKey:   cfg.Unraid.APIKey,
+			Origin:   cfg.Unraid.Origin,
+
+			LogsField:        cfg.Unraid.LogsField,
+			LogsTailArg:      cfg.Unraid.LogsTailArg,
+			LogsPayloadField: cfg.Unraid.LogsPayloadField,
+
+			StatsField:  cfg.Unraid.StatsField,
+			StatsFields: cfg.Unraid.StatsFields,
+
+			ForceUpdateMutation:     cfg.Unraid.ForceUpdateMutation,
+			ForceUpdateArgName:      cfg.Unraid.ForceUpdateArgName,
+			ForceUpdateArgType:      cfg.Unraid.ForceUpdateArgType,
+			ForceUpdateReturnFields: cfg.Unraid.ForceUpdateReturnFields,
 		}, httpClient)
 		providers = append(providers, unraid.NewProvider(unraid.ProviderDeps{
 			WeCom:  wecomClient,
@@ -114,12 +126,13 @@ func NewServer(cfg config.Config) (*Server, error) {
 	s := &http.Server{
 		Addr:              cfg.Server.ListenAddr,
 		Handler:           withRequestLogging(mux),
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout.ToDuration(),
 	}
 
 	return &Server{
-		cfg:    cfg,
-		server: s,
+		cfg:        cfg,
+		server:     s,
+		stateStore: stateStore,
 	}, nil
 }
 
@@ -134,7 +147,11 @@ func (s *Server) Start() error {
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	slog.Info("HTTP 服务关闭中")
-	return s.server.Shutdown(ctx)
+	err := s.server.Shutdown(ctx)
+	if s.stateStore != nil {
+		s.stateStore.Close()
+	}
+	return err
 }
 
 func withRequestLogging(next http.Handler) http.Handler {

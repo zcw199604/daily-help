@@ -108,13 +108,23 @@ type StateStore struct {
 	ttl  time.Duration
 	mu   sync.Mutex
 	data map[string]ConversationState
+
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 func NewStateStore(ttl time.Duration) *StateStore {
-	return &StateStore{
-		ttl:  ttl,
-		data: make(map[string]ConversationState),
+	if ttl <= 0 {
+		ttl = 30 * time.Minute
 	}
+
+	s := &StateStore{
+		ttl:    ttl,
+		data:   make(map[string]ConversationState),
+		stopCh: make(chan struct{}),
+	}
+	s.startJanitor(minDuration(ttl, time.Minute))
+	return s
 }
 
 func (s *StateStore) Get(userID string) (ConversationState, bool) {
@@ -142,4 +152,44 @@ func (s *StateStore) Clear(userID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.data, userID)
+}
+
+func (s *StateStore) Close() {
+	s.stopOnce.Do(func() { close(s.stopCh) })
+}
+
+func (s *StateStore) startJanitor(interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				s.pruneExpired()
+			case <-s.stopCh:
+				return
+			}
+		}
+	}()
+}
+
+func (s *StateStore) pruneExpired() {
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, v := range s.data {
+		if now.After(v.ExpiresAt) {
+			delete(s.data, k)
+		}
+	}
+}
+
+func minDuration(a, b time.Duration) time.Duration {
+	if a <= b {
+		return a
+	}
+	return b
 }

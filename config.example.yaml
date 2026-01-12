@@ -4,6 +4,11 @@ log:
 server:
   listen_addr: ":8080"
   # base_url: "https://your-domain.example.com"
+  http_client_timeout: 15s
+  read_header_timeout: 10s
+
+core:
+  state_ttl: 30m
 
 wecom:
   corpid: "wwxxxxxxxxxxxxxxxx"
@@ -21,8 +26,30 @@ unraid:
   endpoint: "http://unraid-host:port/graphql"
   api_key: "your-unraid-api-key"
   origin: "daily-help"
-  # 如你的 Unraid GraphQL 提供了“强制更新”但名称不在默认探测列表中，可手动指定：
-  # force_update_mutation: "update"
+  # 容器查看：日志
+  logs_field: "logs"
+  # 默认使用 logs(tail: N)；如上游不支持 tail 参数，可设为空字符串禁用（仍会在本地截取最新 N 行）
+  logs_tail_arg: "tail"
+  # 如 logs 返回对象（例如 { content }），可指定承载日志文本的字段名：
+  # logs_payload_field: "content"
+
+  # 容器查看：资源统计
+  stats_field: "stats"
+  # stats 若返回对象，需配置 selection set 字段；如 stats 为标量(JSON)可配置为空数组：[]
+  stats_fields:
+    - "cpuPercent"
+    - "memUsage"
+    - "memLimit"
+    - "netIO"
+    - "blockIO"
+    - "pids"
+
+  # 容器操作：强制更新（默认 update(id: PrefixedID!) { __typename }）
+  force_update_mutation: "update"
+  force_update_arg: "id"
+  force_update_arg_type: "PrefixedID!"
+  force_update_return_fields:
+    - "__typename"
 
 qinglong:
   # 可配置多个青龙实例；id 建议使用字母数字/下划线/短横线（用于卡片按钮回调 key）。

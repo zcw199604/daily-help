@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"io"
+	"log/slog"
 	"net/http"
 )
 
@@ -83,7 +84,11 @@ func NewCallbackHandler(deps CallbackDeps) http.Handler {
 			return
 		}
 
-		_ = deps.Core.HandleMessage(r.Context(), msg)
+		if err := deps.Core.HandleMessage(r.Context(), msg); err != nil {
+			slog.Error("wecom callback 处理失败", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("success"))

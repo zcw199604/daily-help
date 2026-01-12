@@ -11,6 +11,16 @@
 - 企业微信：Unraid 容器查看（状态/运行时长/资源使用/最新日志）
 - 多服务 Provider 框架：服务选择菜单 + 兼容 Unraid 直达入口
 - 青龙(QL) OpenAPI 对接：多实例 + 任务查询/搜索/运行/启用/禁用/日志
+- 配置：新增 `server.http_client_timeout` / `server.read_header_timeout` / `core.state_ttl`，支持按环境调整
+
+### 修复
+- wecom/qinglong：token 刷新引入 singleflight，避免并发刷新击穿与上游限流风险
+- core：StateStore 增加后台定时清理，避免过期状态长期驻留
+- wecom：回调处理失败返回 5xx，触发企业微信重试避免消息丢失
+- main：配置加载失败不再 panic，改为日志输出并退出
+
+### 变更
+- unraid：移除 GraphQL introspection 探测逻辑，改为固定字段 + 配置覆盖（logs/stats/force update）
 
 ## [0.1.0] - 2026-01-12
 
