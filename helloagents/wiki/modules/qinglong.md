@@ -1,0 +1,52 @@
+# qinglong
+
+## 目的
+封装青龙(QL) OpenAPI 的任务管理能力，对外提供统一动作接口（查询/搜索/运行/启用/禁用/日志）。
+
+## 模块概述
+- **职责:** 多实例管理；OpenAPI token 获取与缓存；任务列表/搜索/详情/日志；任务运行与启停
+- **状态:** 🚧开发中
+- **最后更新:** 2026-01-12
+
+## 规范
+
+### 需求: 多实例支持
+**模块:** qinglong
+允许配置多个青龙实例，在企业微信会话中先选择实例，再执行任务操作。
+
+#### 场景: 选择实例
+用户进入青龙菜单后，选择目标实例。
+- 实例必须来自配置白名单（`qinglong.instances`）
+- 实例 id 仅允许字母数字及 `_ -`，且长度≤32
+
+### 需求: 任务查询与搜索
+**模块:** qinglong
+支持任务列表与关键词搜索，并允许在企业微信交互中选择目标任务。
+
+### 需求: 任务运行与启停
+**模块:** qinglong
+对选中任务支持：
+- 运行（run）
+- 启用（enable）
+- 禁用（disable）
+并要求二次确认。
+
+### 需求: 查看最近日志
+**模块:** qinglong
+支持获取任务最近日志并在企业微信中摘要回显，避免超长消息。
+
+## API接口
+本模块不直接对外提供 HTTP API，通过内部接口供 core 调用；对青龙侧通过 OpenAPI 发起 HTTP 请求（如 `/open/auth/token`、`/open/crons` 等）。
+
+## 数据模型
+- `qinglong.instances[].base_url`
+- `qinglong.instances[].client_id`
+- `qinglong.instances[].client_secret`
+
+## 依赖
+- core（Provider 接口与会话状态）
+- wecom（卡片与文本消息交互）
+
+## 变更历史
+- [202601121219_wecom_service_framework](../../history/2026-01/202601121219_wecom_service_framework/) - 企业微信多服务框架 + 青龙(QL)对接
+

@@ -1,4 +1,4 @@
-// Package core 提供企业微信会话的动作路由与状态管理。
+// Package core 提供企业微信会话路由、状态机与可插拔服务分发等核心能力。
 package core
 
 import (
@@ -11,39 +11,45 @@ import (
 type Step string
 
 const (
-	StepAwaitingContainerName Step = "awaiting_container_name"
-	StepAwaitingConfirm       Step = "awaiting_confirm"
+	StepAwaitingContainerName         Step = "awaiting_container_name"
+	StepAwaitingConfirm               Step = "awaiting_confirm"
+	StepAwaitingQinglongSearchKeyword Step = "awaiting_qinglong_search_keyword"
+	StepAwaitingQinglongCronID        Step = "awaiting_qinglong_cron_id"
 )
 
 type Action string
 
 const (
-	ActionRestart     Action = "restart"
-	ActionStop        Action = "stop"
-	ActionForceUpdate Action = "force_update"
+	ActionUnraidRestart     Action = "restart"
+	ActionUnraidStop        Action = "stop"
+	ActionUnraidForceUpdate Action = "force_update"
 
-	ActionViewStatus      Action = "view_status"
-	ActionViewStats       Action = "view_stats"
-	ActionViewStatsDetail Action = "view_stats_detail"
-	ActionViewLogs        Action = "view_logs"
+	ActionUnraidViewStatus      Action = "view_status"
+	ActionUnraidViewStats       Action = "view_stats"
+	ActionUnraidViewStatsDetail Action = "view_stats_detail"
+	ActionUnraidViewLogs        Action = "view_logs"
+
+	ActionQinglongRun     Action = "run"
+	ActionQinglongEnable  Action = "enable"
+	ActionQinglongDisable Action = "disable"
 )
 
 func ActionFromEventKey(key string) Action {
 	switch key {
 	case wecom.EventKeyUnraidRestart:
-		return ActionRestart
+		return ActionUnraidRestart
 	case wecom.EventKeyUnraidStop:
-		return ActionStop
+		return ActionUnraidStop
 	case wecom.EventKeyUnraidForceUpdate:
-		return ActionForceUpdate
+		return ActionUnraidForceUpdate
 	case wecom.EventKeyUnraidViewStatus:
-		return ActionViewStatus
+		return ActionUnraidViewStatus
 	case wecom.EventKeyUnraidViewStats:
-		return ActionViewStats
+		return ActionUnraidViewStats
 	case wecom.EventKeyUnraidViewStatsDetail:
-		return ActionViewStatsDetail
+		return ActionUnraidViewStatsDetail
 	case wecom.EventKeyUnraidViewLogs:
-		return ActionViewLogs
+		return ActionUnraidViewLogs
 	default:
 		return ""
 	}
@@ -51,20 +57,26 @@ func ActionFromEventKey(key string) Action {
 
 func (a Action) DisplayName() string {
 	switch a {
-	case ActionRestart:
+	case ActionUnraidRestart:
 		return "重启"
-	case ActionStop:
+	case ActionUnraidStop:
 		return "停止"
-	case ActionForceUpdate:
+	case ActionUnraidForceUpdate:
 		return "强制更新"
-	case ActionViewStatus:
+	case ActionUnraidViewStatus:
 		return "查看状态"
-	case ActionViewStats:
+	case ActionUnraidViewStats:
 		return "资源概览"
-	case ActionViewStatsDetail:
+	case ActionUnraidViewStatsDetail:
 		return "资源详情"
-	case ActionViewLogs:
+	case ActionUnraidViewLogs:
 		return "查看日志"
+	case ActionQinglongRun:
+		return "运行"
+	case ActionQinglongEnable:
+		return "启用"
+	case ActionQinglongDisable:
+		return "禁用"
 	default:
 		return "未知动作"
 	}
@@ -72,7 +84,8 @@ func (a Action) DisplayName() string {
 
 func (a Action) RequiresConfirm() bool {
 	switch a {
-	case ActionRestart, ActionStop, ActionForceUpdate:
+	case ActionUnraidRestart, ActionUnraidStop, ActionUnraidForceUpdate,
+		ActionQinglongRun, ActionQinglongEnable, ActionQinglongDisable:
 		return true
 	default:
 		return false
@@ -80,10 +93,15 @@ func (a Action) RequiresConfirm() bool {
 }
 
 type ConversationState struct {
-	Step          Step
+	Step       Step
+	ServiceKey string
+	InstanceID string
+
 	Action        Action
 	ContainerName string
-	ExpiresAt     time.Time
+	CronID        int
+
+	ExpiresAt time.Time
 }
 
 type StateStore struct {

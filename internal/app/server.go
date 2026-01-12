@@ -1,5 +1,6 @@
 package app
 
+// server.go 负责装配依赖并启动 HTTP 路由（企业微信回调入口等）。
 import (
 	"context"
 	"errors"
@@ -10,6 +11,7 @@ import (
 
 	"daily-help/internal/config"
 	"daily-help/internal/core"
+	"daily-help/internal/qinglong"
 	"daily-help/internal/unraid"
 	"daily-help/internal/wecom"
 )
@@ -24,13 +26,6 @@ func NewServer(cfg config.Config) (*Server, error) {
 		Timeout: 15 * time.Second,
 	}
 
-	unraidClient := unraid.NewClient(unraid.ClientConfig{
-		Endpoint:            cfg.Unraid.Endpoint,
-		APIKey:              cfg.Unraid.APIKey,
-		Origin:              cfg.Unraid.Origin,
-		ForceUpdateMutation: cfg.Unraid.ForceUpdateMutation,
-	}, httpClient)
-
 	wecomClient := wecom.NewClient(wecom.ClientConfig{
 		APIBaseURL: cfg.WeCom.APIBaseURL,
 		CorpID:     cfg.WeCom.CorpID,
@@ -38,10 +33,53 @@ func NewServer(cfg config.Config) (*Server, error) {
 		Secret:     cfg.WeCom.Secret,
 	}, httpClient)
 
+	stateStore := core.NewStateStore(30 * time.Minute)
+
+	var providers []core.ServiceProvider
+
+	if cfg.Unraid.Endpoint != "" && cfg.Unraid.APIKey != "" {
+		unraidClient := unraid.NewClient(unraid.ClientConfig{
+			Endpoint:            cfg.Unraid.Endpoint,
+			APIKey:              cfg.Unraid.APIKey,
+			Origin:              cfg.Unraid.Origin,
+			ForceUpdateMutation: cfg.Unraid.ForceUpdateMutation,
+		}, httpClient)
+		providers = append(providers, unraid.NewProvider(unraid.ProviderDeps{
+			WeCom:  wecomClient,
+			Client: unraidClient,
+			State:  stateStore,
+		}))
+	}
+
+	if len(cfg.Qinglong.Instances) > 0 {
+		var instances []qinglong.Instance
+		for _, ins := range cfg.Qinglong.Instances {
+			client, err := qinglong.NewClient(qinglong.ClientConfig{
+				BaseURL:      ins.BaseURL,
+				ClientID:     ins.ClientID,
+				ClientSecret: ins.ClientSecret,
+			}, httpClient)
+			if err != nil {
+				return nil, err
+			}
+			instances = append(instances, qinglong.Instance{
+				ID:     ins.ID,
+				Name:   ins.Name,
+				Client: client,
+			})
+		}
+		providers = append(providers, qinglong.NewProvider(qinglong.ProviderDeps{
+			WeCom:     wecomClient,
+			State:     stateStore,
+			Instances: instances,
+		}))
+	}
+
 	router := core.NewRouter(core.RouterDeps{
 		WeCom:         wecomClient,
-		Unraid:        unraidClient,
 		AllowedUserID: make(map[string]struct{}),
+		Providers:     providers,
+		State:         stateStore,
 	})
 	for _, id := range cfg.Auth.AllowedUserIDs {
 		router.AllowedUserID[id] = struct{}{}

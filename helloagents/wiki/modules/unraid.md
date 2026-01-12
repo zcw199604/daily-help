@@ -4,7 +4,7 @@
 封装 Unraid 的容器管理能力，对外提供统一动作接口（重启/停止/强制更新）。
 
 ## 模块概述
-- **职责:** 连接管理（如 SSH/HTTP）；执行容器操作；错误归类与回显信息格式化
+- **职责:** 连接管理（如 SSH/HTTP）；执行容器操作；错误归类与回显信息格式化；作为 Provider 接入企业微信交互
 - **状态:** 🚧开发中
 - **最后更新:** 2026-01-12
 
@@ -57,3 +57,4 @@ MVP 使用 Unraid Connect 插件提供的 GraphQL API（`/graphql` + `x-api-key`
 ## 变更历史
 - 2026-01-12: 基于 GraphQL API 实现容器 stop/start/restart，并通过 introspection 探测“强制更新”能力
 - [202601121216_unraid_container_inspect](../../history/2026-01/202601121216_unraid_container_inspect/) - 容器查看：状态/运行时长/资源使用/最新日志（按 GraphQL 能力探测）
+- [202601121219_wecom_service_framework](../../history/2026-01/202601121219_wecom_service_framework/) - 迁移为 Provider 并接入服务选择菜单（保持“容器/unraid”直达入口）

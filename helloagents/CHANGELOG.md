@@ -9,6 +9,8 @@
 ### 新增
 - GitHub Actions：push 到 main 时构建并推送 Docker Hub 镜像
 - 企业微信：Unraid 容器查看（状态/运行时长/资源使用/最新日志）
+- 多服务 Provider 框架：服务选择菜单 + 兼容 Unraid 直达入口
+- 青龙(QL) OpenAPI 对接：多实例 + 任务查询/搜索/运行/启用/禁用/日志
 
 ## [0.1.0] - 2026-01-12
 

@@ -23,3 +23,13 @@ unraid:
   origin: "daily-help"
   # 如你的 Unraid GraphQL 提供了“强制更新”但名称不在默认探测列表中，可手动指定：
   # force_update_mutation: "update"
+
+qinglong:
+  # 可配置多个青龙实例；id 建议使用字母数字/下划线/短横线（用于卡片按钮回调 key）。
+  instances:
+    - id: "home"
+      name: "家里青龙"
+      base_url: "http://qinglong-host:5700"
+      # 在青龙面板“OpenAPI”里创建应用后获取 client_id/client_secret，并授予 crons 等相关 scopes。
+      client_id: "your-client-id"
+      client_secret: "your-client-secret"

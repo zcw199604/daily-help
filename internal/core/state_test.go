@@ -12,7 +12,7 @@ func TestStateStore_TTL(t *testing.T) {
 	store := NewStateStore(20 * time.Millisecond)
 	store.Set("u", ConversationState{
 		Step:   StepAwaitingContainerName,
-		Action: ActionRestart,
+		Action: ActionUnraidRestart,
 	})
 
 	if _, ok := store.Get("u"); !ok {
@@ -28,10 +28,10 @@ func TestStateStore_TTL(t *testing.T) {
 func TestAction_RequiresConfirm(t *testing.T) {
 	t.Parallel()
 
-	if !ActionRestart.RequiresConfirm() {
-		t.Fatalf("ActionRestart RequiresConfirm() = false, want true")
+	if !ActionUnraidRestart.RequiresConfirm() {
+		t.Fatalf("ActionUnraidRestart RequiresConfirm() = false, want true")
 	}
-	if ActionViewStatus.RequiresConfirm() {
-		t.Fatalf("ActionViewStatus RequiresConfirm() = true, want false")
+	if ActionUnraidViewStatus.RequiresConfirm() {
+		t.Fatalf("ActionUnraidViewStatus RequiresConfirm() = true, want false")
 	}
 }
