@@ -1,0 +1,25 @@
+log:
+  level: info
+
+server:
+  listen_addr: ":8080"
+  # base_url: "https://your-domain.example.com"
+
+wecom:
+  corpid: "wwxxxxxxxxxxxxxxxx"
+  agentid: 1000002
+  secret: "填写企业微信应用secret"
+  token: "填写回调Token"
+  encoding_aes_key: "填写EncodingAESKey"
+  api_base_url: "https://qyapi.weixin.qq.com/cgi-bin"
+
+auth:
+  allowed_userids:
+    - "your-userid"
+
+unraid:
+  endpoint: "http://unraid-host:port/graphql"
+  api_key: "your-unraid-api-key"
+  origin: "daily-help"
+  # 如你的 Unraid GraphQL 提供了“强制更新”但名称不在默认探测列表中，可手动指定：
+  # force_update_mutation: "update"
