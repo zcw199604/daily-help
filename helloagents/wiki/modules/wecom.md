@@ -33,6 +33,9 @@
 ## API接口
 对外 HTTP 入口见 `wiki/api.md`。
 
+## 交互文档
+- [企业微信自建应用会话交互速查](../wecom_interaction.md)
+
 ## 数据模型
 无独立持久化数据；读取 Config 并透传到 core。
 
