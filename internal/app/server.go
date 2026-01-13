@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -141,12 +142,26 @@ func NewServer(cfg config.Config) (*Server, error) {
 }
 
 func (s *Server) Start() error {
-	slog.Info("HTTP 服务启动", "listen_addr", s.cfg.Server.ListenAddr)
-	err := s.server.ListenAndServe()
+	listener, err := net.Listen("tcp", s.cfg.Server.ListenAddr)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	return s.Serve(listener)
+}
+
+func (s *Server) Serve(listener net.Listener) error {
+	if listener == nil {
+		return fmt.Errorf("nil listener")
+	}
+	slog.Info("HTTP 服务启动",
+		"listen_addr", s.cfg.Server.ListenAddr,
+		"listener_addr", listener.Addr().String(),
+	)
+	err := s.server.Serve(listener)
 	if err == nil || errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
-	return fmt.Errorf("listen and serve: %w", err)
+	return fmt.Errorf("serve: %w", err)
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
