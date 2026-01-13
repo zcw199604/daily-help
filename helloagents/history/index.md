@@ -23,6 +23,7 @@
 | 202601130955 | wecom_send_logging | 修复 | ✅已完成 | [202601130955_wecom_send_logging](2026-01/202601130955_wecom_send_logging/) |
 | 202601131034 | wecom_callback_logs | 修复 | ✅已完成 | [202601131034_wecom_callback_logs](2026-01/202601131034_wecom_callback_logs/) |
 | 202601131058 | config_load_logs | 修复 | ✅已完成 | [202601131058_config_load_logs](2026-01/202601131058_config_load_logs/) |
+| 202601131307 | wecom_pkcs7_padding_fix | 修复 | ✅已完成 | [202601131307_wecom_pkcs7_padding_fix](2026-01/202601131307_wecom_pkcs7_padding_fix/) |
 
 ---
 
@@ -45,3 +46,4 @@
 - [202601130955_wecom_send_logging](2026-01/202601130955_wecom_send_logging/) - 企业微信发送消息日志增强（message/send/gettoken/update_template_card）
 - [202601131034_wecom_callback_logs](2026-01/202601131034_wecom_callback_logs/) - 企业微信回调链路日志增强（验签/解密/解析 + status_code）
 - [202601131058_config_load_logs](2026-01/202601131058_config_load_logs/) - 配置加载日志增强（path/sha256/脱敏配置摘要）
+- [202601131307_wecom_pkcs7_padding_fix](2026-01/202601131307_wecom_pkcs7_padding_fix/) - 企业微信回调解密 PKCS7 padding 对齐修复（blockSize=32）

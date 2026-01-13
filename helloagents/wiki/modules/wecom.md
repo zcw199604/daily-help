@@ -15,6 +15,7 @@
 必须校验回调签名，解密成功后才进入业务处理；错误场景返回可诊断但不泄露敏感信息的响应。
 - 回调入口限制请求体大小（默认 1MiB），避免恶意超大 body 导致资源耗尽。
 - 对回调消息做短期去重（按 TaskId/MsgId/明文哈希），吸收企业微信重试并避免重复执行业务逻辑。
+- 加解密遵循 WXBizMsgCrypt：签名为 SHA1(sort(token,timestamp,nonce,encrypt))；AES-CBC(iv=key[:16])；PKCS7 padding blockSize=32。
 
 ### 需求: access_token 缓存与并发刷新治理
 **模块:** wecom
@@ -48,3 +49,4 @@
 - 2026-01-12: 新增服务选择与青龙(QL)交互卡片（实例选择/动作菜单/任务选择）
 - 2026-01-12: access_token 刷新引入 singleflight，抑制并发刷新击穿
 - 2026-01-13: 模板卡片按钮回调消费 ResponseCode，调用 update_template_card 更新按钮为不可点击状态
+- 2026-01-13: 修复 PKCS7 padding blockSize 与官方一致（32），解决回调解密 invalid pkcs7 padding

@@ -12,6 +12,8 @@ import (
 	"sort"
 )
 
+const pkcs7BlockSize = 32
+
 type CryptoConfig struct {
 	Token          string
 	EncodingAESKey string
@@ -77,7 +79,7 @@ func (c *Crypto) Decrypt(encryptedBase64 string) ([]byte, error) {
 	plain := make([]byte, len(ciphertext))
 	mode.CryptBlocks(plain, ciphertext)
 
-	plain, err = pkcs7Unpad(plain, block.BlockSize())
+	plain, err = pkcs7Unpad(plain, pkcs7BlockSize)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +122,7 @@ func (c *Crypto) Encrypt(plaintext []byte, random16 []byte) (string, error) {
 		return "", err
 	}
 
-	payload = pkcs7Pad(payload, block.BlockSize())
+	payload = pkcs7Pad(payload, pkcs7BlockSize)
 
 	iv := c.aesKey[:block.BlockSize()]
 	mode := cipher.NewCBCEncrypter(block, iv)

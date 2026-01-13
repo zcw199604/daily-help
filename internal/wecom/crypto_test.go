@@ -50,6 +50,52 @@ func TestCrypto_EncryptDecryptAndVerifySignature(t *testing.T) {
 	}
 }
 
+func TestCrypto_PKCS7BlockSize32(t *testing.T) {
+	t.Parallel()
+
+	rawKey := []byte("0123456789abcdef0123456789abcdef")
+	encodingAESKey := strings.TrimRight(base64.StdEncoding.EncodeToString(rawKey), "=")
+	receiverID := "ww1234567890"
+
+	crypto, err := NewCrypto(CryptoConfig{
+		Token:          "t",
+		EncodingAESKey: encodingAESKey,
+		ReceiverID:     receiverID,
+	})
+	if err != nil {
+		t.Fatalf("NewCrypto() error: %v", err)
+	}
+
+	plaintext := []byte("123456789012") // 12 bytes -> padding should be 20 (blockSize=32)
+	encrypted, err := crypto.Encrypt(plaintext, []byte("0123456789abcdef"))
+	if err != nil {
+		t.Fatalf("Encrypt() error: %v", err)
+	}
+
+	cipherBytes, err := base64.StdEncoding.DecodeString(encrypted)
+	if err != nil {
+		t.Fatalf("DecodeString() error: %v", err)
+	}
+
+	payloadLen := 16 + 4 + len(plaintext) + len(receiverID)
+	padLen := 32 - (payloadLen % 32)
+	expectedLen := payloadLen + padLen
+	if len(cipherBytes) != expectedLen {
+		t.Fatalf("ciphertext len = %d, want %d", len(cipherBytes), expectedLen)
+	}
+	if len(cipherBytes)%32 != 0 {
+		t.Fatalf("ciphertext len %% 32 = %d, want 0", len(cipherBytes)%32)
+	}
+
+	got, err := crypto.Decrypt(encrypted)
+	if err != nil {
+		t.Fatalf("Decrypt() error: %v", err)
+	}
+	if string(got) != string(plaintext) {
+		t.Fatalf("Decrypt() = %q, want %q", string(got), string(plaintext))
+	}
+}
+
 func TestCrypto_ReceiverMismatch(t *testing.T) {
 	t.Parallel()
 

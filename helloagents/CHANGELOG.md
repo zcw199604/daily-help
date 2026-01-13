@@ -27,6 +27,7 @@
 - app/wecom：回调与请求日志增强（GET/POST 回调增加验签/解密/解析阶段日志；请求日志增加 status_code/response_bytes）
 - config：配置加载日志增强（输出 config 文件 path/sha256/size/mtime；打印脱敏配置摘要用于确认容器挂载是否生效）
 - main：配置加载失败不再 panic，改为日志输出并退出
+- wecom：修复 PKCS7 padding blockSize 与官方一致（32），解决回调解密 invalid pkcs7 padding
 
 ### 变更
 - 项目：整体更名为 wecom-home-ops（Go module/import、入口二进制、Dockerfile、示例命令与文档）
