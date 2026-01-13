@@ -20,6 +20,7 @@
 | 202601130629 | wecom_interaction_kb | 文档 | ✅已完成 | [202601130629_wecom_interaction_kb](2026-01/202601130629_wecom_interaction_kb/) |
 | 202601130730 | wecom_autoreply_test | 测试 | ✅已完成 | [202601130730_wecom_autoreply_test](2026-01/202601130730_wecom_autoreply_test/) |
 | 202601130732 | wecom_update_template_card | 功能 | ✅已完成 | [202601130732_wecom_update_template_card](2026-01/202601130732_wecom_update_template_card/) |
+| 202601130955 | wecom_send_logging | 修复 | ✅已完成 | [202601130955_wecom_send_logging](2026-01/202601130955_wecom_send_logging/) |
 
 ---
 
@@ -39,3 +40,4 @@
 - [202601130629_wecom_interaction_kb](2026-01/202601130629_wecom_interaction_kb/) - 企业微信自建应用会话交互速查表（回调/发消息/模板卡片按钮）
 - [202601130730_wecom_autoreply_test](2026-01/202601130730_wecom_autoreply_test/) - 企业微信收发自检自动回复（ping/自检）
 - [202601130732_wecom_update_template_card](2026-01/202601130732_wecom_update_template_card/) - 消费 ResponseCode 更新模板卡片按钮状态（update_template_card）
+- [202601130955_wecom_send_logging](2026-01/202601130955_wecom_send_logging/) - 企业微信发送消息日志增强（message/send/gettoken/update_template_card）

@@ -4,6 +4,7 @@ package core
 // router.go 负责企业微信消息入口的鉴权、会话管理与多服务 Provider 分发。
 import (
 	"context"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -78,10 +79,15 @@ func (r *Router) HandleMessage(ctx context.Context, msg wecom.IncomingMessage) e
 		return nil
 	}
 	if _, ok := r.AllowedUserID[userID]; !ok {
-		_ = r.WeCom.SendText(ctx, wecom.TextMessage{
+		if err := r.WeCom.SendText(ctx, wecom.TextMessage{
 			ToUser:  userID,
 			Content: "无权限：该账号未加入白名单。",
-		})
+		}); err != nil {
+			slog.Error("wecom 发送无权限提示失败",
+				"error", err,
+				"user_id", userID,
+			)
+		}
 		return nil
 	}
 
@@ -158,7 +164,14 @@ func (r *Router) handleEvent(ctx context.Context, userID string, msg wecom.Incom
 	if updater, ok := r.WeCom.(templateCardUpdater); ok {
 		responseCode := strings.TrimSpace(msg.ResponseCode)
 		if responseCode != "" {
-			_ = updater.UpdateTemplateCardButton(ctx, responseCode, r.templateCardReplaceName(key))
+			if err := updater.UpdateTemplateCardButton(ctx, responseCode, r.templateCardReplaceName(key)); err != nil {
+				slog.Error("wecom 更新模板卡片按钮失败",
+					"error", err,
+					"user_id", userID,
+					"event_key", key,
+					"response_code_len", len(responseCode),
+				)
+			}
 		}
 	}
 	if key == "" {
