@@ -164,11 +164,37 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func withRequestLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
+		sw := &statusWriter{ResponseWriter: w}
+		next.ServeHTTP(sw, r)
+		if sw.status == 0 {
+			sw.status = http.StatusOK
+		}
 		slog.Info("请求完成",
 			"method", r.Method,
 			"path", r.URL.Path,
+			"status_code", sw.status,
+			"response_bytes", sw.bytes,
 			"duration_ms", time.Since(start).Milliseconds(),
 		)
 	})
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (w *statusWriter) WriteHeader(statusCode int) {
+	w.status = statusCode
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *statusWriter) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	n, err := w.ResponseWriter.Write(p)
+	w.bytes += n
+	return n, err
 }

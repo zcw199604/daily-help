@@ -31,21 +31,40 @@ type encryptedEnvelope struct {
 
 func NewCallbackVerifyHandler(crypto *Crypto) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		msgSignature := r.URL.Query().Get("msg_signature")
-		timestamp := r.URL.Query().Get("timestamp")
-		nonce := r.URL.Query().Get("nonce")
-		echostr := r.URL.Query().Get("echostr")
+		msgSignature := strings.TrimSpace(r.URL.Query().Get("msg_signature"))
+		timestamp := strings.TrimSpace(r.URL.Query().Get("timestamp"))
+		nonce := strings.TrimSpace(r.URL.Query().Get("nonce"))
+		echostr := strings.TrimSpace(r.URL.Query().Get("echostr"))
 
 		if !crypto.VerifySignature(msgSignature, timestamp, nonce, echostr) {
+			slog.Warn("wecom callback verify 验签失败",
+				"timestamp", timestamp,
+				"nonce", nonce,
+				"msg_signature_len", len(msgSignature),
+				"echostr_len", len(echostr),
+			)
 			http.Error(w, "invalid signature", http.StatusForbidden)
 			return
 		}
 
 		plain, err := crypto.Decrypt(echostr)
 		if err != nil {
+			slog.Warn("wecom callback verify 解密 echostr 失败",
+				"error", err,
+				"timestamp", timestamp,
+				"nonce", nonce,
+				"msg_signature_len", len(msgSignature),
+				"echostr_len", len(echostr),
+			)
 			http.Error(w, "decrypt failed", http.StatusForbidden)
 			return
 		}
+
+		slog.Info("wecom callback verify 成功",
+			"timestamp", timestamp,
+			"nonce", nonce,
+			"msg_signature_len", len(msgSignature),
+		)
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(plain)
@@ -54,9 +73,9 @@ func NewCallbackVerifyHandler(crypto *Crypto) http.Handler {
 
 func NewCallbackHandler(deps CallbackDeps) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		msgSignature := r.URL.Query().Get("msg_signature")
-		timestamp := r.URL.Query().Get("timestamp")
-		nonce := r.URL.Query().Get("nonce")
+		msgSignature := strings.TrimSpace(r.URL.Query().Get("msg_signature"))
+		timestamp := strings.TrimSpace(r.URL.Query().Get("timestamp"))
+		nonce := strings.TrimSpace(r.URL.Query().Get("nonce"))
 
 		maxBody := deps.MaxBodyBytes
 		if maxBody <= 0 {
@@ -68,39 +87,88 @@ func NewCallbackHandler(deps CallbackDeps) http.Handler {
 		if err != nil {
 			var maxErr *http.MaxBytesError
 			if errors.As(err, &maxErr) {
+				slog.Warn("wecom callback 读取请求体失败：payload too large",
+					"error", err,
+					"max_body_bytes", maxBody,
+				)
 				http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
 				return
 			}
+			slog.Warn("wecom callback 读取请求体失败",
+				"error", err,
+				"max_body_bytes", maxBody,
+			)
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
 
 		var env encryptedEnvelope
 		if err := xml.Unmarshal(b, &env); err != nil {
+			slog.Warn("wecom callback 解析 envelope 失败（bad xml）",
+				"error", err,
+				"body_len", len(b),
+			)
 			http.Error(w, "bad xml", http.StatusBadRequest)
 			return
 		}
+		env.Encrypt = strings.TrimSpace(env.Encrypt)
 		if env.Encrypt == "" {
+			slog.Warn("wecom callback 缺少 Encrypt 字段",
+				"body_len", len(b),
+			)
 			http.Error(w, "missing encrypt", http.StatusBadRequest)
 			return
 		}
 
 		if !deps.Crypto.VerifySignature(msgSignature, timestamp, nonce, env.Encrypt) {
+			slog.Warn("wecom callback 验签失败",
+				"timestamp", timestamp,
+				"nonce", nonce,
+				"msg_signature_len", len(msgSignature),
+				"encrypt_len", len(env.Encrypt),
+			)
 			http.Error(w, "invalid signature", http.StatusForbidden)
 			return
 		}
 
 		plain, err := deps.Crypto.Decrypt(env.Encrypt)
 		if err != nil {
+			slog.Warn("wecom callback 解密失败",
+				"error", err,
+				"timestamp", timestamp,
+				"nonce", nonce,
+				"msg_signature_len", len(msgSignature),
+				"encrypt_len", len(env.Encrypt),
+			)
 			http.Error(w, "decrypt failed", http.StatusForbidden)
 			return
 		}
 
 		var msg IncomingMessage
 		if err := xml.Unmarshal(plain, &msg); err != nil {
+			slog.Warn("wecom callback 解析明文消息失败（bad xml）",
+				"error", err,
+				"plain_len", len(plain),
+			)
 			http.Error(w, "bad xml", http.StatusBadRequest)
 			return
 		}
+
+		content := strings.TrimSpace(msg.Content)
+		normalized := strings.ToLower(content)
+		isSelfTest := normalized == "ping" || normalized == "/ping" || normalized == "自检"
+
+		slog.Info("wecom callback 已解析消息",
+			"user_id", strings.TrimSpace(msg.FromUserName),
+			"msg_type", strings.TrimSpace(msg.MsgType),
+			"event", strings.TrimSpace(msg.Event),
+			"event_key", strings.TrimSpace(msg.EventKey),
+			"task_id", strings.TrimSpace(msg.TaskId),
+			"response_code_len", len(strings.TrimSpace(msg.ResponseCode)),
+			"msg_id", strings.TrimSpace(msg.MsgID),
+			"content_len", len(content),
+			"is_selftest", isSelfTest,
+		)
 
 		key := callbackDedupeKey(msg, plain)
 		if deps.Deduper != nil && key != "" {
