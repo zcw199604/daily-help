@@ -12,6 +12,7 @@
 - 多服务 Provider 框架：服务选择菜单 + 兼容 Unraid 直达入口
 - 青龙(QL) OpenAPI 对接：多实例 + 任务查询/搜索/运行/启用/禁用/日志
 - 文档：补充青龙 OpenAPI 调用方式与排障示例
+- 文档：同步青龙官方文档快照（README/LICENSE）并生成官方接口清单
 - 配置：新增 `server.http_client_timeout` / `server.read_header_timeout` / `core.state_ttl`，支持按环境调整
 - 测试：补齐 Unraid/Qinglong/WeCom 交互与边界的详细单元测试
 

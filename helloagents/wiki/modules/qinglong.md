@@ -48,6 +48,11 @@
 - 调用约定与排障示例：`helloagents/wiki/qinglong_openapi.md`
 - 代码实现参考：`internal/qinglong/client.go`
 
+### 官方文档（本地快照）
+- 上游 README：`helloagents/wiki/qinglong_official/README.md`
+- 上游 LICENSE：`helloagents/wiki/qinglong_official/LICENSE`
+- 官方接口清单（源码提取）：`helloagents/wiki/qinglong_official/openapi.md`
+
 ## 数据模型
 - `qinglong.instances[].base_url`
 - `qinglong.instances[].client_id`

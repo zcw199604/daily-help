@@ -35,4 +35,6 @@
 - [API 手册](api.md)
 - [数据模型](data.md)
 - [青龙 OpenAPI 调用方式](qinglong_openapi.md)
+- [青龙官方文档快照](qinglong_official/README.md)
+- [青龙官方接口清单（源码提取）](qinglong_official/openapi.md)
 - [变更历史](../history/index.md)
