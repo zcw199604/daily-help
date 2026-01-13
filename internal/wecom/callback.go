@@ -111,6 +111,7 @@ func NewCallbackHandler(deps CallbackDeps) http.Handler {
 					"event", strings.TrimSpace(msg.Event),
 					"event_key", strings.TrimSpace(msg.EventKey),
 					"task_id", strings.TrimSpace(msg.TaskId),
+					"response_code", strings.TrimSpace(msg.ResponseCode),
 					"msg_id", strings.TrimSpace(msg.MsgID),
 				)
 				w.WriteHeader(http.StatusOK)
@@ -127,6 +128,7 @@ func NewCallbackHandler(deps CallbackDeps) http.Handler {
 				"event", strings.TrimSpace(msg.Event),
 				"event_key", strings.TrimSpace(msg.EventKey),
 				"task_id", strings.TrimSpace(msg.TaskId),
+				"response_code", strings.TrimSpace(msg.ResponseCode),
 				"msg_id", strings.TrimSpace(msg.MsgID),
 			)
 		}

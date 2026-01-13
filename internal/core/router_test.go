@@ -14,6 +14,16 @@ type recordWeCom struct {
 	cards []wecom.TemplateCardMessage
 }
 
+type recordWeComUpdater struct {
+	recordWeCom
+	updates []templateCardUpdate
+}
+
+type templateCardUpdate struct {
+	ResponseCode string
+	ReplaceName  string
+}
+
 func (r *recordWeCom) SendText(_ context.Context, msg wecom.TextMessage) error {
 	r.texts = append(r.texts, msg)
 	return nil
@@ -21,6 +31,11 @@ func (r *recordWeCom) SendText(_ context.Context, msg wecom.TextMessage) error {
 
 func (r *recordWeCom) SendTemplateCard(_ context.Context, msg wecom.TemplateCardMessage) error {
 	r.cards = append(r.cards, msg)
+	return nil
+}
+
+func (r *recordWeComUpdater) UpdateTemplateCardButton(_ context.Context, responseCode string, replaceName string) error {
+	r.updates = append(r.updates, templateCardUpdate{ResponseCode: responseCode, ReplaceName: replaceName})
 	return nil
 }
 
@@ -201,5 +216,41 @@ func TestRouter_Confirm_DispatchesByStateServiceKey(t *testing.T) {
 	}
 	if unraid.onConfirm != 1 {
 		t.Fatalf("provider HandleConfirm hits = %d, want 1", unraid.onConfirm)
+	}
+}
+
+func TestRouter_TemplateCardEvent_UpdatesButtonByResponseCode(t *testing.T) {
+	t.Parallel()
+
+	rec := &recordWeComUpdater{}
+	userID := "u"
+
+	r := NewRouter(RouterDeps{
+		WeCom: rec,
+		AllowedUserID: map[string]struct{}{
+			userID: {},
+		},
+		Providers: []ServiceProvider{},
+		State:     NewStateStore(1 * time.Minute),
+	})
+
+	if err := r.HandleMessage(context.Background(), wecom.IncomingMessage{
+		FromUserName: userID,
+		MsgType:      "event",
+		Event:        "template_card_event",
+		EventKey:     wecom.EventKeyCancel,
+		ResponseCode: "RC",
+	}); err != nil {
+		t.Fatalf("HandleMessage() error: %v", err)
+	}
+
+	if got := len(rec.updates); got != 1 {
+		t.Fatalf("update calls = %d, want 1", got)
+	}
+	if rec.updates[0].ResponseCode != "RC" {
+		t.Fatalf("response_code = %q, want %q", rec.updates[0].ResponseCode, "RC")
+	}
+	if rec.updates[0].ReplaceName != "已取消" {
+		t.Fatalf("replace_name = %q, want %q", rec.updates[0].ReplaceName, "已取消")
 	}
 }

@@ -3,6 +3,7 @@ package wecom
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -132,5 +133,104 @@ func TestClient_SendText_ConcurrentTokenRefresh(t *testing.T) {
 	}
 	if atomic.LoadInt32(&sendHits) != n {
 		t.Fatalf("message/send hits = %d, want %d", sendHits, n)
+	}
+}
+
+func TestClient_UpdateTemplateCardButton_RequestShape(t *testing.T) {
+	t.Parallel()
+
+	var getTokenHits int32
+	var updateHits int32
+	validateErr := make(chan error, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/gettoken":
+			atomic.AddInt32(&getTokenHits, 1)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"errcode":      0,
+				"errmsg":       "ok",
+				"access_token": "AT",
+				"expires_in":   7200,
+			})
+			return
+		case "/message/update_template_card":
+			atomic.AddInt32(&updateHits, 1)
+			if got := r.URL.Query().Get("access_token"); got != "AT" {
+				select {
+				case validateErr <- fmt.Errorf("access_token = %q, want %q", got, "AT"):
+				default:
+				}
+			}
+			var payload map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				select {
+				case validateErr <- fmt.Errorf("decode payload error: %w", err):
+				default:
+				}
+			} else {
+				if got, ok := payload["agentid"].(float64); !ok || int(got) != 1 {
+					select {
+					case validateErr <- fmt.Errorf("agentid = %v, want 1", payload["agentid"]):
+					default:
+					}
+				}
+				if got, ok := payload["response_code"].(string); !ok || got != "RC" {
+					select {
+					case validateErr <- fmt.Errorf("response_code = %v, want %q", payload["response_code"], "RC"):
+					default:
+					}
+				}
+				button, ok := payload["button"].(map[string]interface{})
+				if !ok {
+					select {
+					case validateErr <- fmt.Errorf("button missing"):
+					default:
+					}
+				} else {
+					if got, ok := button["replace_name"].(string); !ok || got != "已处理" {
+						select {
+						case validateErr <- fmt.Errorf("button.replace_name = %v, want %q", button["replace_name"], "已处理"):
+						default:
+						}
+					}
+				}
+			}
+
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"errcode": 0,
+				"errmsg":  "ok",
+			})
+			return
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewClient(ClientConfig{
+		APIBaseURL: srv.URL,
+		CorpID:     "ww",
+		AgentID:    1,
+		Secret:     "sec",
+	}, srv.Client())
+
+	if err := c.UpdateTemplateCardButton(context.Background(), "RC", "已处理"); err != nil {
+		t.Fatalf("UpdateTemplateCardButton() error: %v", err)
+	}
+	select {
+	case err := <-validateErr:
+		if err != nil {
+			t.Fatalf("validate request error: %v", err)
+		}
+	default:
+	}
+
+	if atomic.LoadInt32(&getTokenHits) != 1 {
+		t.Fatalf("gettoken hits = %d, want 1", getTokenHits)
+	}
+	if atomic.LoadInt32(&updateHits) != 1 {
+		t.Fatalf("update hits = %d, want 1", updateHits)
 	}
 }

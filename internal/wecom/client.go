@@ -65,6 +65,28 @@ func (c *Client) SendTemplateCard(ctx context.Context, msg TemplateCardMessage) 
 	return c.sendMessage(ctx, payload)
 }
 
+// UpdateTemplateCardButton 将模板卡片的按钮更新为不可点击状态（替换按钮文案）。
+//
+// 官方文档（SSOT）：更新模版卡片消息
+// https://developer.work.weixin.qq.com/document/90000/90135/94888
+func (c *Client) UpdateTemplateCardButton(ctx context.Context, responseCode string, replaceName string) error {
+	if responseCode == "" {
+		return errors.New("wecom update_template_card: response_code 为空")
+	}
+	if replaceName == "" {
+		replaceName = "已处理"
+	}
+
+	payload := map[string]interface{}{
+		"agentid":       c.cfg.AgentID,
+		"response_code": responseCode,
+		"button": map[string]interface{}{
+			"replace_name": replaceName,
+		},
+	}
+	return c.updateTemplateCard(ctx, payload)
+}
+
 func (c *Client) sendMessage(ctx context.Context, payload map[string]interface{}) error {
 	token, err := c.getAccessToken(ctx)
 	if err != nil {
@@ -72,6 +94,43 @@ func (c *Client) sendMessage(ctx context.Context, payload map[string]interface{}
 	}
 
 	u := c.cfg.APIBaseURL + "/message/send?access_token=" + url.QueryEscape(token)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	var out struct {
+		ErrCode int    `json:"errcode"`
+		ErrMsg  string `json:"errmsg"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return err
+	}
+	if out.ErrCode != 0 {
+		return fmt.Errorf("wecom api error: %d %s", out.ErrCode, out.ErrMsg)
+	}
+	return nil
+}
+
+func (c *Client) updateTemplateCard(ctx context.Context, payload map[string]interface{}) error {
+	token, err := c.getAccessToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	u := c.cfg.APIBaseURL + "/message/update_template_card?access_token=" + url.QueryEscape(token)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err

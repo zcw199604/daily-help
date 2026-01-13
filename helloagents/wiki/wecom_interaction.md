@@ -10,6 +10,7 @@
 - 事件格式（含 enter_agent、template_card_event、template_card_menu_event）：https://developer.work.weixin.qq.com/document/path/90240
 - 被动回复消息格式（仅在需要被动回复时使用；注意 To/From 方向与回调入站不同）：https://developer.work.weixin.qq.com/document/path/90241
 - 发送应用消息（message/send、模板卡片类型与字段约束）：https://developer.work.weixin.qq.com/document/path/90236
+- 更新模版卡片消息（update_template_card、消费 ResponseCode）：https://developer.work.weixin.qq.com/document/90000/90135/94888
 - 获取 access_token（gettoken）：https://developer.work.weixin.qq.com/document/path/91039
 
 ## 交互链路总览
@@ -159,7 +160,7 @@ POST https://<your-host>/wecom/callback?msg_signature=ASDF...&timestamp=13500001
 </xml>
 ```
 
-> 说明：本项目当前仅解析并使用 `EventKey/TaskId`（用于路由与去重）；`ResponseCode` 在现有实现中会被忽略，如需“更新卡片”需补齐字段并实现更新接口调用。
+> 说明：本项目已支持消费 `ResponseCode` 并调用 `update_template_card` 将按钮更新为不可点击状态（避免重复点击；与 `TaskId` 去重策略一致）。
 
 ### 模板卡片右上角菜单（Event=template_card_menu_event）
 
@@ -218,6 +219,33 @@ POST https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=ACCESS_TOKEN
 }
 ```
 
+## 更新模版卡片消息（update_template_card）
+
+官方说明（https://developer.work.weixin.qq.com/document/90000/90135/94888）要点：
+
+- 请求方式：`POST`（HTTPS）
+- 请求地址：`https://qyapi.weixin.qq.com/cgi-bin/message/update_template_card?access_token=ACCESS_TOKEN`
+- `response_code`：可通过**发消息接口**返回值或**回调事件**获取；**72 小时内有效且只能使用一次**
+- 按钮置灰（按钮交互型/投票选择型/多项选择型）：使用 `button.replace_name` 替换按钮文案并更新为不可点击
+
+可复制请求示例（将按钮更新为不可点击状态）：
+
+```bash
+curl -sS -X POST 'https://qyapi.weixin.qq.com/cgi-bin/message/update_template_card?access_token=ACCESS_TOKEN' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "agentid": 1000002,
+    "response_code": "RESPONSE_CODE",
+    "button": { "replace_name": "已处理" }
+  }'
+```
+
+成功返回示例（同上链接）：
+
+```json
+{ "errcode": 0, "errmsg": "ok" }
+```
+
 ## 与本项目实现的映射
 
 ### 配置项（config.yaml）
@@ -268,6 +296,7 @@ POST https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=ACCESS_TOKEN
 - `internal/wecom/client.go`
   - `gettoken`：本地缓存 + singleflight 合并刷新
   - `message/send`：发送 text/template_card
+  - `message/update_template_card`：消费 `ResponseCode` 更新卡片按钮为不可点击状态
   - `task_id`：若未提供则自动生成 `wecom-home-ops-<unixnano>`（用于回调关联）
 
 ## 排障清单（高频问题）

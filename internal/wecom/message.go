@@ -13,6 +13,7 @@ type IncomingMessage struct {
 	MsgID        string `xml:"MsgId"`
 	TaskId       string `xml:"TaskId"`
 	CardType     string `xml:"CardType"`
+	ResponseCode string `xml:"ResponseCode"`
 }
 
 const (

@@ -28,6 +28,10 @@ type Router struct {
 	keywordIndex map[string]string
 }
 
+type templateCardUpdater interface {
+	UpdateTemplateCardButton(ctx context.Context, responseCode string, replaceName string) error
+}
+
 func NewRouter(deps RouterDeps) *Router {
 	state := deps.State
 	if state == nil {
@@ -142,6 +146,12 @@ func (r *Router) handleEvent(ctx context.Context, userID string, msg wecom.Incom
 	}
 
 	key := strings.TrimSpace(msg.EventKey)
+	if updater, ok := r.WeCom.(templateCardUpdater); ok {
+		responseCode := strings.TrimSpace(msg.ResponseCode)
+		if responseCode != "" {
+			_ = updater.UpdateTemplateCardButton(ctx, responseCode, r.templateCardReplaceName(key))
+		}
+	}
 	if key == "" {
 		return nil
 	}
@@ -216,6 +226,17 @@ func (r *Router) handleEvent(ctx context.Context, userID string, msg wecom.Incom
 	}
 
 	return nil
+}
+
+func (r *Router) templateCardReplaceName(eventKey string) string {
+	switch eventKey {
+	case wecom.EventKeyConfirm:
+		return "已确认"
+	case wecom.EventKeyCancel:
+		return "已取消"
+	default:
+		return "已处理"
+	}
 }
 
 func (r *Router) enterProvider(ctx context.Context, userID, key string) error {
