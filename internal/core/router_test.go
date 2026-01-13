@@ -3,6 +3,7 @@ package core
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -252,5 +253,46 @@ func TestRouter_TemplateCardEvent_UpdatesButtonByResponseCode(t *testing.T) {
 	}
 	if rec.updates[0].ReplaceName != "已取消" {
 		t.Fatalf("replace_name = %q, want %q", rec.updates[0].ReplaceName, "已取消")
+	}
+}
+
+func TestRouter_SelfTestPing_AutoReplies(t *testing.T) {
+	t.Parallel()
+
+	rec := &recordWeCom{}
+	userID := "u"
+
+	r := NewRouter(RouterDeps{
+		WeCom: rec,
+		AllowedUserID: map[string]struct{}{
+			userID: {},
+		},
+		State: NewStateStore(1 * time.Minute),
+	})
+
+	if err := r.HandleMessage(context.Background(), wecom.IncomingMessage{
+		ToUserName:   "corp",
+		FromUserName: userID,
+		MsgType:      "text",
+		Content:      "ping",
+		MsgID:        "123",
+	}); err != nil {
+		t.Fatalf("HandleMessage() error: %v", err)
+	}
+
+	if got := len(rec.texts); got != 1 {
+		t.Fatalf("text message count = %d, want 1", got)
+	}
+	if got := rec.texts[0].ToUser; got != userID {
+		t.Fatalf("ToUser = %q, want %q", got, userID)
+	}
+	if !strings.HasPrefix(rec.texts[0].Content, "pong\nserver_time: ") {
+		t.Fatalf("reply = %q, want prefix %q", rec.texts[0].Content, "pong\\nserver_time: ")
+	}
+	if !strings.Contains(rec.texts[0].Content, "\nmsg_id: 123") {
+		t.Fatalf("reply = %q, want msg_id 123", rec.texts[0].Content)
+	}
+	if got := len(rec.cards); got != 0 {
+		t.Fatalf("template card count = %d, want 0", got)
 	}
 }
