@@ -28,6 +28,8 @@
 | 202601131512 | startup_notify_wecom | 功能 | ✅已完成 | [202601131512_startup_notify_wecom](2026-01/202601131512_startup_notify_wecom/) |
 | 202601141207 | unraid_force_update_compat | 修复 | ✅已完成 | [202601141207_unraid_force_update_compat](2026-01/202601141207_unraid_force_update_compat/) |
 | 202601141231 | qinglong_wechat_text | 修复 | ✅已完成 | [202601141231_qinglong_wechat_text](2026-01/202601141231_qinglong_wechat_text/) |
+| 202601141311 | unraid_official_api_kb | 文档 | ✅已完成 | [202601141311_unraid_official_api_kb](2026-01/202601141311_unraid_official_api_kb/) |
+| 202601141334 | unraid_force_update_webgui_fallback | 修复 | ✅已完成 | [202601141334_unraid_force_update_webgui_fallback](2026-01/202601141334_unraid_force_update_webgui_fallback/) |
 
 ---
 
@@ -55,3 +57,5 @@
 - [202601131512_startup_notify_wecom](2026-01/202601131512_startup_notify_wecom/) - 启动成功后推送企业微信应用消息（诊断信息）
 - [202601141207_unraid_force_update_compat](2026-01/202601141207_unraid_force_update_compat/) - Unraid 强制更新回退兼容（错误转义差异）
 - [202601141231_qinglong_wechat_text](2026-01/202601141231_qinglong_wechat_text/) - 青龙在微信文本菜单交互 + 任务列表 400 修复
+- [202601141311_unraid_official_api_kb](2026-01/202601141311_unraid_official_api_kb/) - Unraid 官方 API（GraphQL）与上游客户端用法整理入库
+- [202601141334_unraid_force_update_webgui_fallback](2026-01/202601141334_unraid_force_update_webgui_fallback/) - Unraid 强制更新新增 WebGUI StartCommand.php 兜底（update_container）

@@ -16,7 +16,8 @@
 - 重启（restart）
 - 停止（stop）
 - 强制更新（force update）
-  - 说明：强制更新依赖 Unraid GraphQL 提供相应 mutation；代码会自动回退尝试 `updateContainer(id: PrefixedID!)` 与 `update(id: PrefixedID!)`，如仍不一致再通过配置覆盖（见下文）
+  - 说明：优先使用 Unraid GraphQL 提供相应 mutation；代码会自动回退尝试 `updateContainer(id: PrefixedID!)` 与 `update(id: PrefixedID!)`，如仍不一致再通过配置覆盖（见下文）
+  - 兜底：当目标 Unraid 的 `DockerMutations` 不提供更新相关 mutation（GraphQL 校验错误）时，可启用 WebGUI StartCommand.php 兜底执行 `update_container <name>`（需配置 csrf_token，可能需要 Cookie）
 
 ### 需求: 容器查看（状态/资源/日志）
 **模块:** unraid
@@ -36,6 +37,7 @@
     - `unraid.logs_field` / `unraid.logs_tail_arg` / `unraid.logs_payload_field`
     - `unraid.stats_field` / `unraid.stats_fields`
     - `unraid.force_update_mutation` / `unraid.force_update_arg` / `unraid.force_update_arg_type` / `unraid.force_update_return_fields`
+    - （可选兜底）`unraid.webgui_csrf_token` / `unraid.webgui_cookie` / `unraid.webgui_command_url`
   - 提示：当 GraphQL 返回字段/参数错误时，错误信息会带上可配置项提示，便于快速定位
 
 #### 输出限制
@@ -58,10 +60,16 @@ MVP 使用 Unraid Connect 插件提供的 GraphQL API（`/graphql` + `x-api-key`
 ## 依赖
 - core（接口约定）
 
+## 参考
+- [unraid_official_api](../unraid_official_api.md) - Unraid 官方 API（GraphQL）要点整理（版本可用性/API key/OIDC/CLI/示例 Query）
+- [unraid_mobile_ui](../unraid_mobile_ui.md) - Flutter 客户端项目：功能清单与 GraphQL 使用方式整理（/graphql + x-api-key + ws/wss subscription）
+
 ## 变更历史
 - 2026-01-12: 基于 GraphQL API 实现容器 stop/start/restart，强制更新能力可配置
 - 2026-01-14: 强制更新回退识别增强，兼容 GraphQL 错误转义差异，避免未触发回退
+- 2026-01-14: 强制更新新增 WebGUI StartCommand.php 兜底（update_container）
 - [202601141207_unraid_force_update_compat](../../history/2026-01/202601141207_unraid_force_update_compat/) - 强制更新回退兼容（错误转义差异）
+- [202601141334_unraid_force_update_webgui_fallback](../../history/2026-01/202601141334_unraid_force_update_webgui_fallback/) - 强制更新 WebGUI 兜底（StartCommand.php update_container）
 - [202601121216_unraid_container_inspect](../../history/2026-01/202601121216_unraid_container_inspect/) - 容器查看：状态/运行时长/资源使用/最新日志（按 GraphQL 能力探测）
 - [202601121219_wecom_service_framework](../../history/2026-01/202601121219_wecom_service_framework/) - 迁移为 Provider 并接入服务选择菜单（保持“容器/unraid”直达入口）
 - [202601121424_stability_refactor](../../history/2026-01/202601121424_stability_refactor/) - 去 introspection：固定字段 + 配置覆盖（logs/stats/force update）

@@ -35,6 +35,19 @@ unraid:
   endpoint: "http://unraid-host:port/graphql"
   api_key: "your-unraid-api-key"
   origin: "wecom-home-ops"
+
+  # WebGUI StartCommand.php 兜底（用于 GraphQL 不支持的操作，例如容器更新）。
+  # 典型抓包形态：
+  #   POST http://<ip>/webGui/include/StartCommand.php
+  #   Content-Type: application/x-www-form-urlencoded; charset=UTF-8
+  #   cmd=update_container+<containerName>&start=0&csrf_token=<token>
+  #
+  # 可选：若你的 endpoint 不是标准的 /graphql（例如反代带前缀），可显式指定 command_url。
+  # webgui_command_url: "http://unraid-host/webGui/include/StartCommand.php"
+  # 必填：csrf_token（通常随 WebGUI 登录会话变化；可从页面/抓包获取）
+  # webgui_csrf_token: "YOUR_CSRF_TOKEN"
+  # 可选：Cookie（当 WebGUI 需要登录鉴权时必填；抓包里复制 Cookie 头即可）
+  # webgui_cookie: "key=value; key2=value2"
   # 容器查看：日志
   logs_field: "logs"
   # 默认使用 logs(tail: N)；如上游不支持 tail 参数，可设为空字符串禁用（仍会在本地截取最新 N 行）

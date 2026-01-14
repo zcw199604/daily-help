@@ -19,8 +19,11 @@
 - 文档：补充青龙 OpenAPI 调用方式与排障示例
 - 文档：同步青龙官方文档快照（README/LICENSE）并生成官方接口清单
 - 文档：补充青龙在微信/不支持模板卡片客户端的文本菜单交互说明
+- 文档：整理上游项目 `s3ppo/unraid_mobile_ui` 的功能与 GraphQL API 使用方式
+- 文档：整理 Unraid 官方 API（GraphQL）文档要点（可用性/鉴权/API key/OIDC/CLI/示例 Query）
 - 配置：新增 `server.http_client_timeout` / `server.read_header_timeout` / `core.state_ttl`，支持按环境调整
 - 测试：补齐 Unraid/Qinglong/WeCom 交互与边界的详细单元测试
+- unraid：强制更新新增 WebGUI StartCommand.php 兜底（支持 `update_container <name>`；需配置 csrf_token/可选 Cookie）
 
 ### 修复
 - wecom/qinglong：token 刷新引入 singleflight，避免并发刷新击穿与上游限流风险
@@ -30,6 +33,7 @@
 - wecom/core：新增 `wecom.template_card_mode`（template_card/both/text）与“回复序号触发 EventKey”文本兜底，解决模板卡片不展示导致菜单无响应
 - core/unraid：支持菜单点击的“文本模式”兜底与文本确认（避免模板卡片不展示时无法继续）
 - unraid：强制更新 mutation 回退识别增强（兼容 GraphQL 错误转义差异），自动回退尝试 `updateContainer/update`
+- unraid：当目标 Unraid 未提供更新相关 GraphQL mutation 时，强制更新可自动切换至 WebGUI 兜底（避免直接失败）
 - qinglong：移除 OpenAPI 请求中的 `t` 时间戳 query，修复部分版本参数校验导致任务列表 400 的问题
 - wecom：增强发送消息/gettoken/update_template_card 的结构化日志；message/send 返回 invaliduser 等不可达信息时输出告警并返回错误
 - app/wecom：回调与请求日志增强（GET/POST 回调增加验签/解密/解析阶段日志；请求日志增加 status_code/response_bytes）

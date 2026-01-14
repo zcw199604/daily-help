@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 )
@@ -17,6 +18,14 @@ type ClientConfig struct {
 	Endpoint string
 	APIKey   string
 	Origin   string
+
+	// WebGUI StartCommand 兜底配置（用于 GraphQL 不支持的操作，例如容器更新）。
+	// - WebGUICommandURL: 例如 http://<ip>/webGui/include/StartCommand.php（默认可从 Endpoint 推导）
+	// - WebGUICSRFToken: 抓包/页面里看到的 csrf_token
+	// - WebGUICookie: 可选；如 WebGUI 需要登录，则需提供 Cookie 以通过鉴权
+	WebGUICommandURL string
+	WebGUICSRFToken  string
+	WebGUICookie     string
 
 	// 容器日志字段（默认 logs）。如 logs 返回对象，可通过 LogsPayloadField 指定承载日志文本的字段名。
 	LogsField        string
@@ -85,6 +94,10 @@ func applyClientDefaults(cfg *ClientConfig) {
 	if cfg.ForceUpdateReturnFields == nil {
 		cfg.ForceUpdateReturnFields = []string{"__typename"}
 	}
+
+	if strings.TrimSpace(cfg.WebGUICommandURL) == "" {
+		cfg.WebGUICommandURL = deriveWebGUICommandURL(cfg.Endpoint)
+	}
 }
 
 type graphQLRequest struct {
@@ -136,7 +149,19 @@ func (c *Client) ForceUpdateContainerByName(ctx context.Context, name string) er
 	if err != nil {
 		return err
 	}
-	return c.callDockerForceUpdateMutation(ctx, id)
+	if err := c.callDockerForceUpdateMutation(ctx, id); err != nil {
+		if isMaybeUnsupportedGraphQL(err) {
+			if c.canWebGUIForceUpdate() {
+				if errWeb := c.webGUIUpdateContainer(ctx, name); errWeb != nil {
+					return fmt.Errorf("强制更新失败（GraphQL 不支持）且 WebGUI 兜底失败：%w", errWeb)
+				}
+				return nil
+			}
+			return fmt.Errorf("%w；如目标 Unraid 未提供对应 GraphQL mutation，可在 config.yaml 配置 unraid.webgui_csrf_token / unraid.webgui_cookie / unraid.webgui_command_url 使用 WebGUI 更新", err)
+		}
+		return err
+	}
+	return nil
 }
 
 type ContainerStatus struct {
@@ -420,6 +445,95 @@ func (c *Client) do(ctx context.Context, query string, variables map[string]inte
 		return nil
 	}
 	return json.Unmarshal(raw.Data, out)
+}
+
+func deriveWebGUICommandURL(endpoint string) string {
+	raw := strings.TrimSpace(endpoint)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || strings.TrimSpace(u.Scheme) == "" || strings.TrimSpace(u.Host) == "" {
+		return ""
+	}
+
+	path := strings.TrimSuffix(u.Path, "/")
+	if strings.HasSuffix(path, "/graphql") {
+		path = strings.TrimSuffix(path, "/graphql")
+	}
+	u.Path = strings.TrimSuffix(path, "/") + "/webGui/include/StartCommand.php"
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
+}
+
+func isMaybeUnsupportedGraphQL(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "Cannot query field") ||
+		strings.Contains(msg, "Unknown argument") ||
+		strings.Contains(msg, "Unknown type") ||
+		strings.HasPrefix(msg, "graphql error:")
+}
+
+func (c *Client) canWebGUIForceUpdate() bool {
+	return strings.TrimSpace(c.cfg.WebGUICommandURL) != "" && strings.TrimSpace(c.cfg.WebGUICSRFToken) != ""
+}
+
+func (c *Client) webGUIUpdateContainer(ctx context.Context, name string) error {
+	cmd := "update_container " + normalizeName(name)
+	return c.doWebGUICommand(ctx, cmd)
+}
+
+func (c *Client) doWebGUICommand(ctx context.Context, cmd string) error {
+	cmdURL := strings.TrimSpace(c.cfg.WebGUICommandURL)
+	if cmdURL == "" {
+		cmdURL = deriveWebGUICommandURL(c.cfg.Endpoint)
+	}
+	csrf := strings.TrimSpace(c.cfg.WebGUICSRFToken)
+	if cmdURL == "" || csrf == "" {
+		return errors.New("未配置 WebGUI StartCommand 兜底（需配置 unraid.webgui_csrf_token，可选 unraid.webgui_cookie / unraid.webgui_command_url）")
+	}
+
+	form := url.Values{}
+	form.Set("cmd", cmd)
+	form.Set("start", "0")
+	form.Set("csrf_token", csrf)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cmdURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	if cookie := strings.TrimSpace(c.cfg.WebGUICookie); cookie != "" {
+		req.Header.Set("Cookie", cookie)
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	b, _ := io.ReadAll(io.LimitReader(res.Body, 4<<10))
+	body := strings.TrimSpace(string(b))
+
+	if res.StatusCode < 200 || res.StatusCode > 299 {
+		return fmt.Errorf("unraid webgui http status %d: %s", res.StatusCode, body)
+	}
+
+	contentType := strings.ToLower(strings.TrimSpace(res.Header.Get("Content-Type")))
+	bodyLower := strings.ToLower(body)
+	if strings.Contains(bodyLower, "invalid csrf") || strings.Contains(bodyLower, "csrf") && strings.Contains(bodyLower, "invalid") {
+		return errors.New("unraid webgui csrf_token 无效或已过期")
+	}
+	if strings.Contains(contentType, "text/html") && strings.Contains(bodyLower, "login") && strings.Contains(bodyLower, "password") {
+		return errors.New("unraid webgui 可能未登录（请配置 unraid.webgui_cookie）或 csrf_token 已失效")
+	}
+	return nil
 }
 
 func (c *Client) queryContainerExtraByName(ctx context.Context, name string, fieldName string, fieldExpr string) (containerInfo, interface{}, error) {

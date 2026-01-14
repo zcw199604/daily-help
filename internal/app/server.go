@@ -52,6 +52,10 @@ func NewServer(cfg config.Config) (*Server, error) {
 			APIKey:   cfg.Unraid.APIKey,
 			Origin:   cfg.Unraid.Origin,
 
+			WebGUICommandURL: cfg.Unraid.WebGUICommandURL,
+			WebGUICSRFToken:  cfg.Unraid.WebGUICSRFToken,
+			WebGUICookie:     cfg.Unraid.WebGUICookie,
+
 			LogsField:        cfg.Unraid.LogsField,
 			LogsTailArg:      cfg.Unraid.LogsTailArg,
 			LogsPayloadField: cfg.Unraid.LogsPayloadField,

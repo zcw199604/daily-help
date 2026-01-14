@@ -280,6 +280,134 @@ func TestClient_ForceUpdate_FallbackMutationName_DoubleEscaped(t *testing.T) {
 	}
 }
 
+func TestClient_ForceUpdate_WebGUIFallback(t *testing.T) {
+	t.Parallel()
+
+	var updateContainerCalls int32
+	var updateCalls int32
+	var webGUICalls int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/graphql":
+			var req graphQLRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			q := req.Query
+			switch {
+			case strings.Contains(q, "docker { containers"):
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"data": map[string]interface{}{
+						"docker": map[string]interface{}{
+							"containers": []map[string]interface{}{
+								{
+									"id":     "docker:abc",
+									"names":  []string{"app"},
+									"state":  "running",
+									"status": "Up",
+								},
+							},
+						},
+					},
+				})
+				return
+
+			case strings.Contains(q, "mutation ForceUpdate") && strings.Contains(q, "updateContainer("):
+				atomic.AddInt32(&updateContainerCalls, 1)
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"errors": []map[string]interface{}{
+						{"message": `Cannot query field \"updateContainer\" on type \"DockerMutations\".`},
+					},
+				})
+				return
+
+			case strings.Contains(q, "mutation ForceUpdate") && strings.Contains(q, "update("):
+				atomic.AddInt32(&updateCalls, 1)
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"errors": []map[string]interface{}{
+						{"message": `Cannot query field \"update\" on type \"DockerMutations\".`},
+					},
+				})
+				return
+			default:
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"errors": []map[string]interface{}{
+						{"message": "unexpected query"},
+					},
+				})
+				return
+			}
+
+		case "/webGui/include/StartCommand.php":
+			atomic.AddInt32(&webGUICalls, 1)
+			if r.Method != http.MethodPost {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			if err := r.ParseForm(); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if got := r.Form.Get("cmd"); got != "update_container app" {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte("bad cmd"))
+				return
+			}
+			if got := r.Form.Get("start"); got != "0" {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte("bad start"))
+				return
+			}
+			if got := r.Form.Get("csrf_token"); got != "tok" {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte("bad csrf"))
+				return
+			}
+			if got := r.Header.Get("Cookie"); got != "a=b" {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte("bad cookie"))
+				return
+			}
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = w.Write([]byte("OK"))
+			return
+
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewClient(ClientConfig{
+		Endpoint:            srv.URL + "/graphql",
+		APIKey:              "k",
+		Origin:              "o",
+		WebGUICommandURL:    srv.URL + "/webGui/include/StartCommand.php",
+		WebGUICSRFToken:     "tok",
+		WebGUICookie:        "a=b",
+		ForceUpdateMutation: "updateContainer",
+	}, srv.Client())
+
+	if err := c.ForceUpdateContainerByName(context.Background(), "app"); err != nil {
+		t.Fatalf("ForceUpdateContainerByName() error: %v", err)
+	}
+
+	if atomic.LoadInt32(&updateContainerCalls) != 1 {
+		t.Fatalf("updateContainer calls = %d, want 1", updateContainerCalls)
+	}
+	if atomic.LoadInt32(&updateCalls) != 1 {
+		t.Fatalf("update calls = %d, want 1", updateCalls)
+	}
+	if atomic.LoadInt32(&webGUICalls) != 1 {
+		t.Fatalf("webgui calls = %d, want 1", webGUICalls)
+	}
+}
+
 func TestClient_GetContainerStatusStatsLogs(t *testing.T) {
 	t.Parallel()
 
