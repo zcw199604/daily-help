@@ -140,3 +140,9 @@
 - ⚠️ 官方文档页未直接列出“更新容器/拉取镜像”相关 mutation；若目标环境的 `DockerMutations` 不提供 `updateContainer/update` 等字段，可：
   - 以 Apollo Live Documentation（官方文档给出的链接）为准确认是否存在替代字段
   - 或改用 WebGUI 内部接口 `webGui/include/StartCommand.php` 执行 `update_container <name>`（需要 Cookie/CSRF；wecom-home-ops 已提供可选兜底配置：`unraid.webgui_csrf_token` / `unraid.webgui_cookie` / `unraid.webgui_command_url`）
+
+## 目标实例差异快照（10.10.10.100）
+- Schema 摘要见：`helloagents/wiki/unraid_schema_10.10.10.100.md`
+- 关键差异（与“官方示例/常见预期”对照）：
+  - ✅ 容器列表走 `docker { containers(...) { ... } }`
+  - ⚠️ `DockerMutations` 仅包含 `start/stop`，不支持 `updateContainer/update`（因此更新容器需走 WebGUI 兜底）

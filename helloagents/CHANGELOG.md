@@ -24,6 +24,7 @@
 - 配置：新增 `server.http_client_timeout` / `server.read_header_timeout` / `core.state_ttl`，支持按环境调整
 - 测试：补齐 Unraid/Qinglong/WeCom 交互与边界的详细单元测试
 - unraid：强制更新新增 WebGUI StartCommand.php 兜底（支持 `update_container <name>`；需配置 csrf_token/可选 Cookie）
+- 文档：新增目标实例 `10.10.10.100` 的 GraphQL schema 摘要（Query/Mutation/Subscription + Docker/VM/Array 等关键字段清单）
 
 ### 修复
 - wecom/qinglong：token 刷新引入 singleflight，避免并发刷新击穿与上游限流风险

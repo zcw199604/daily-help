@@ -63,6 +63,7 @@ MVP 使用 Unraid Connect 插件提供的 GraphQL API（`/graphql` + `x-api-key`
 ## 参考
 - [unraid_official_api](../unraid_official_api.md) - Unraid 官方 API（GraphQL）要点整理（版本可用性/API key/OIDC/CLI/示例 Query）
 - [unraid_mobile_ui](../unraid_mobile_ui.md) - Flutter 客户端项目：功能清单与 GraphQL 使用方式整理（/graphql + x-api-key + ws/wss subscription）
+- [unraid_schema_10.10.10.100](../unraid_schema_10.10.10.100.md) - 目标实例 GraphQL schema 摘要（含 DockerMutations/Array/Vm 等可用字段清单）
 
 ## 变更历史
 - 2026-01-12: 基于 GraphQL API 实现容器 stop/start/restart，强制更新能力可配置
