@@ -29,17 +29,17 @@ const (
 	EventKeyCoreHelp     = "core.help"
 	EventKeyCoreSelfTest = "core.selftest"
 
-	EventKeyUnraidMenuOps     = "unraid.menu.ops"
-	EventKeyUnraidMenuView    = "unraid.menu.view"
-	EventKeyUnraidBackToMenu  = "unraid.menu.back"
-	EventKeyUnraidRestart     = "unraid.action.restart"
-	EventKeyUnraidStop        = "unraid.action.stop"
-	EventKeyUnraidForceUpdate = "unraid.action.force_update"
-	EventKeyUnraidViewStatus  = "unraid.view.status"
-	EventKeyUnraidViewStats   = "unraid.view.stats"
+	EventKeyUnraidMenuOps         = "unraid.menu.ops"
+	EventKeyUnraidMenuView        = "unraid.menu.view"
+	EventKeyUnraidBackToMenu      = "unraid.menu.back"
+	EventKeyUnraidRestart         = "unraid.action.restart"
+	EventKeyUnraidStop            = "unraid.action.stop"
+	EventKeyUnraidForceUpdate     = "unraid.action.force_update"
+	EventKeyUnraidViewStatus      = "unraid.view.status"
+	EventKeyUnraidViewSystemStats = "unraid.view.system_stats"
 
-	EventKeyUnraidViewStatsDetail = "unraid.view.stats_detail"
-	EventKeyUnraidViewLogs        = "unraid.view.logs"
+	EventKeyUnraidViewSystemStatsDetail = "unraid.view.system_stats_detail"
+	EventKeyUnraidViewLogs              = "unraid.view.logs"
 
 	EventKeyQinglongMenu                 = "qinglong.menu"
 	EventKeyQinglongInstanceSelectPrefix = "qinglong.instance.select."
@@ -362,14 +362,14 @@ func NewUnraidViewCard() TemplateCard {
 				"key":   EventKeyUnraidViewStatus,
 			},
 			{
-				"text":  "资源概览",
+				"text":  "系统资源",
 				"style": 1,
-				"key":   EventKeyUnraidViewStats,
+				"key":   EventKeyUnraidViewSystemStats,
 			},
 			{
-				"text":  "资源详情",
+				"text":  "系统资源详情",
 				"style": 2,
-				"key":   EventKeyUnraidViewStatsDetail,
+				"key":   EventKeyUnraidViewSystemStatsDetail,
 			},
 			{
 				"text":  "查看日志",

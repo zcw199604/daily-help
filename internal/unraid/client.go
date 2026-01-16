@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -178,6 +179,29 @@ type ContainerStats struct {
 	Stats interface{}
 }
 
+type SystemMetrics struct {
+	CPUPercentTotal float64
+
+	MemoryTotal     int64
+	MemoryUsed      int64
+	MemoryFree      int64
+	MemoryAvailable int64
+	MemoryPercent   float64
+
+	PerCPU []CPUCoreLoad
+}
+
+type CPUCoreLoad struct {
+	PercentTotal  float64
+	PercentUser   float64
+	PercentSystem float64
+	PercentNice   float64
+	PercentIdle   float64
+	PercentIrq    float64
+	PercentGuest  float64
+	PercentSteal  float64
+}
+
 type ContainerLogs struct {
 	ID    string
 	Name  string
@@ -219,6 +243,95 @@ func (c *Client) GetContainerStatsByName(ctx context.Context, name string) (Cont
 		Name:  ct.Name,
 		Stats: v,
 	}, nil
+}
+
+type bigIntString string
+
+func (b *bigIntString) UnmarshalJSON(data []byte) error {
+	s := strings.TrimSpace(string(data))
+	if s == "" || s == "null" {
+		*b = ""
+		return nil
+	}
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		*b = bigIntString(s[1 : len(s)-1])
+		return nil
+	}
+	*b = bigIntString(s)
+	return nil
+}
+
+type systemMetricsResp struct {
+	Metrics struct {
+		CPU struct {
+			PercentTotal float64 `json:"percentTotal"`
+			CPUs         []struct {
+				PercentTotal  float64 `json:"percentTotal"`
+				PercentUser   float64 `json:"percentUser"`
+				PercentSystem float64 `json:"percentSystem"`
+				PercentNice   float64 `json:"percentNice"`
+				PercentIdle   float64 `json:"percentIdle"`
+				PercentIrq    float64 `json:"percentIrq"`
+				PercentGuest  float64 `json:"percentGuest"`
+				PercentSteal  float64 `json:"percentSteal"`
+			} `json:"cpus"`
+		} `json:"cpu"`
+		Memory struct {
+			Total        bigIntString `json:"total"`
+			Used         bigIntString `json:"used"`
+			Free         bigIntString `json:"free"`
+			Available    bigIntString `json:"available"`
+			PercentTotal float64      `json:"percentTotal"`
+		} `json:"memory"`
+	} `json:"metrics"`
+}
+
+func parseInt64FromBigIntString(s bigIntString) int64 {
+	v := strings.TrimSpace(string(s))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func (c *Client) GetSystemMetrics(ctx context.Context) (SystemMetrics, error) {
+	const q = `query { metrics { cpu { percentTotal cpus { percentTotal percentUser percentSystem percentNice percentIdle percentIrq percentGuest percentSteal } } memory { total used free available percentTotal } } }`
+
+	var resp systemMetricsResp
+	if err := c.do(ctx, q, nil, &resp); err != nil {
+		return SystemMetrics{}, err
+	}
+
+	out := SystemMetrics{
+		CPUPercentTotal: resp.Metrics.CPU.PercentTotal,
+		MemoryTotal:     parseInt64FromBigIntString(resp.Metrics.Memory.Total),
+		MemoryUsed:      parseInt64FromBigIntString(resp.Metrics.Memory.Used),
+		MemoryFree:      parseInt64FromBigIntString(resp.Metrics.Memory.Free),
+		MemoryAvailable: parseInt64FromBigIntString(resp.Metrics.Memory.Available),
+		MemoryPercent:   resp.Metrics.Memory.PercentTotal,
+	}
+
+	if len(resp.Metrics.CPU.CPUs) > 0 {
+		out.PerCPU = make([]CPUCoreLoad, 0, len(resp.Metrics.CPU.CPUs))
+		for _, c := range resp.Metrics.CPU.CPUs {
+			out.PerCPU = append(out.PerCPU, CPUCoreLoad{
+				PercentTotal:  c.PercentTotal,
+				PercentUser:   c.PercentUser,
+				PercentSystem: c.PercentSystem,
+				PercentNice:   c.PercentNice,
+				PercentIdle:   c.PercentIdle,
+				PercentIrq:    c.PercentIrq,
+				PercentGuest:  c.PercentGuest,
+				PercentSteal:  c.PercentSteal,
+			})
+		}
+	}
+
+	return out, nil
 }
 
 func (c *Client) GetContainerLogsByName(ctx context.Context, name string, tail int) (ContainerLogs, error) {

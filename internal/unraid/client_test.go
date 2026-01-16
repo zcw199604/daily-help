@@ -602,7 +602,7 @@ func TestClient_ConfigOverride_LogsPayload(t *testing.T) {
 	}
 }
 
-func TestClient_ConfigOverride_StatsScalar(t *testing.T) {
+func TestClient_ConfigOverride_ContainerStatsScalar(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -613,7 +613,7 @@ func TestClient_ConfigOverride_StatsScalar(t *testing.T) {
 		}
 
 		q := req.Query
-		if !strings.Contains(q, "metrics") {
+		if !strings.Contains(q, "docker { containers") || !strings.Contains(q, "metrics") {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"errors": []map[string]interface{}{{"message": "unexpected query"}},
 			})

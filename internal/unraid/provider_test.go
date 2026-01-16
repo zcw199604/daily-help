@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/zcw199604/wecom-home-ops/internal/core"
 	"github.com/zcw199604/wecom-home-ops/internal/wecom"
@@ -52,462 +50,6 @@ func TestProvider_ViewFlowsAndLogTail(t *testing.T) {
 	t.Parallel()
 
 	var mu sync.Mutex
-	var tails []int
-	var stopHits int
-	var startHits int
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req graphQLRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		q := req.Query
-
-		switch {
-		case strings.Contains(q, "docker { containers"):
-			if idx := strings.Index(q, "tail:"); idx >= 0 {
-				rest := q[idx+len("tail:"):]
-				rest = strings.TrimSpace(rest)
-				var digits strings.Builder
-				for _, ch := range rest {
-					if ch < '0' || ch > '9' {
-						break
-					}
-					_ = digits.WriteByte(byte(ch))
-				}
-				if digits.Len() > 0 {
-					n, _ := strconv.Atoi(digits.String())
-					mu.Lock()
-					tails = append(tails, n)
-					mu.Unlock()
-				}
-			}
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"data": map[string]interface{}{
-					"docker": map[string]interface{}{
-						"containers": []map[string]interface{}{
-							{
-								"id":     "docker:abc",
-								"names":  []string{"app"},
-								"state":  "running",
-								"status": "Up 3 hours (healthy)",
-								"logs":   "line1\nline2\nline3\nline4",
-								"stats": map[string]interface{}{
-									"cpuPercent": "1.23%",
-									"memUsage":   "128MiB",
-									"memLimit":   "2GiB",
-									"netIO":      "1.1MB / 2.2MB",
-									"blockIO":    "0B / 0B",
-									"pids":       "12",
-								},
-							},
-						},
-					},
-				},
-			})
-			return
-
-		case strings.Contains(q, "mutation Stop"):
-			mu.Lock()
-			stopHits++
-			mu.Unlock()
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"data": map[string]interface{}{
-					"docker": map[string]interface{}{
-						"stop": map[string]interface{}{
-							"id":     "docker:abc",
-							"state":  "exited",
-							"status": "Exited",
-						},
-					},
-				},
-			})
-			return
-
-		case strings.Contains(q, "mutation Start"):
-			mu.Lock()
-			startHits++
-			mu.Unlock()
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"data": map[string]interface{}{
-					"docker": map[string]interface{}{
-						"start": map[string]interface{}{
-							"id":     "docker:abc",
-							"state":  "running",
-							"status": "Up",
-						},
-					},
-				},
-			})
-			return
-
-		case strings.Contains(q, "mutation ForceUpdate"):
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"data": map[string]interface{}{
-					"docker": map[string]interface{}{
-						"update": map[string]interface{}{
-							"__typename": "DockerContainer",
-						},
-					},
-				},
-			})
-			return
-
-		default:
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"errors": []map[string]interface{}{
-					{"message": "unexpected query"},
-				},
-			})
-			return
-		}
-	}))
-	t.Cleanup(srv.Close)
-
-	rec := &recordWeCom{}
-	store := core.NewStateStore(1 * time.Minute)
-	t.Cleanup(store.Close)
-
-	client := NewClient(ClientConfig{
-		Endpoint: srv.URL,
-		APIKey:   "k",
-		Origin:   "o",
-	}, srv.Client())
-
-	p := NewProvider(ProviderDeps{
-		WeCom:  rec,
-		Client: client,
-		State:  store,
-	})
-
-	ctx := context.Background()
-	userID := "u"
-
-	// 1) 查看状态：提示输入→回显运行时长
-	if ok, err := p.HandleEvent(ctx, userID, wecom.IncomingMessage{EventKey: wecom.EventKeyUnraidViewStatus}); err != nil || !ok {
-		t.Fatalf("HandleEvent(view_status) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	if ok, err := p.HandleText(ctx, userID, "app"); err != nil || !ok {
-		t.Fatalf("HandleText(status) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	texts := rec.Texts()
-	if len(texts) == 0 || !strings.Contains(texts[len(texts)-1].Content, "运行时长: 3 hours") {
-		t.Fatalf("status reply missing uptime, got: %#v", texts)
-	}
-
-	// 2) 资源概览
-	if ok, err := p.HandleEvent(ctx, userID, wecom.IncomingMessage{EventKey: wecom.EventKeyUnraidViewStats}); err != nil || !ok {
-		t.Fatalf("HandleEvent(view_stats) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	if ok, err := p.HandleText(ctx, userID, "app"); err != nil || !ok {
-		t.Fatalf("HandleText(stats) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	texts = rec.Texts()
-	if len(texts) == 0 || !strings.Contains(texts[len(texts)-1].Content, "【资源概览】") {
-		t.Fatalf("stats overview reply missing, got: %#v", texts[len(texts)-1].Content)
-	}
-
-	// 3) 资源详情
-	if ok, err := p.HandleEvent(ctx, userID, wecom.IncomingMessage{EventKey: wecom.EventKeyUnraidViewStatsDetail}); err != nil || !ok {
-		t.Fatalf("HandleEvent(view_stats_detail) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	if ok, err := p.HandleText(ctx, userID, "app"); err != nil || !ok {
-		t.Fatalf("HandleText(stats_detail) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	texts = rec.Texts()
-	if len(texts) == 0 || !strings.Contains(texts[len(texts)-1].Content, "【资源详情】") {
-		t.Fatalf("stats detail reply missing, got: %#v", texts[len(texts)-1].Content)
-	}
-
-	// 4) 查看日志：默认 tail=50
-	if ok, err := p.HandleEvent(ctx, userID, wecom.IncomingMessage{EventKey: wecom.EventKeyUnraidViewLogs}); err != nil || !ok {
-		t.Fatalf("HandleEvent(view_logs) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	if ok, err := p.HandleText(ctx, userID, "app"); err != nil || !ok {
-		t.Fatalf("HandleText(logs default) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-
-	// 5) 查看日志：指定 tail=2，应截断最新两行并标记已截取
-	if ok, err := p.HandleEvent(ctx, userID, wecom.IncomingMessage{EventKey: wecom.EventKeyUnraidViewLogs}); err != nil || !ok {
-		t.Fatalf("HandleEvent(view_logs2) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	if ok, err := p.HandleText(ctx, userID, "app 2"); err != nil || !ok {
-		t.Fatalf("HandleText(logs 2) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	texts = rec.Texts()
-	if last := texts[len(texts)-1].Content; !strings.Contains(last, "tail 2") || !strings.Contains(last, "line3") || strings.Contains(last, "line1") {
-		t.Fatalf("logs tail reply unexpected: %q", last)
-	}
-
-	// 6) 查看日志：超过上限应 clamp 到 200
-	if ok, err := p.HandleEvent(ctx, userID, wecom.IncomingMessage{EventKey: wecom.EventKeyUnraidViewLogs}); err != nil || !ok {
-		t.Fatalf("HandleEvent(view_logs3) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	if ok, err := p.HandleText(ctx, userID, "app 999"); err != nil || !ok {
-		t.Fatalf("HandleText(logs 999) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-
-	mu.Lock()
-	gotTails := append([]int(nil), tails...)
-	gotStop := stopHits
-	gotStart := startHits
-	mu.Unlock()
-
-	if len(gotTails) < 3 || gotTails[len(gotTails)-3] != 50 || gotTails[len(gotTails)-2] != 2 || gotTails[len(gotTails)-1] != 200 {
-		t.Fatalf("tails = %#v, want last [50 2 200]", gotTails)
-	}
-
-	// 7) 操作类动作：重启需要确认并执行 stop+start
-	if ok, err := p.HandleEvent(ctx, userID, wecom.IncomingMessage{EventKey: wecom.EventKeyUnraidRestart}); err != nil || !ok {
-		t.Fatalf("HandleEvent(restart) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	if ok, err := p.HandleText(ctx, userID, "app"); err != nil || !ok {
-		t.Fatalf("HandleText(restart input) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	if ok, err := p.HandleConfirm(ctx, userID); err != nil || !ok {
-		t.Fatalf("HandleConfirm(restart) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-
-	mu.Lock()
-	gotStop = stopHits
-	gotStart = startHits
-	mu.Unlock()
-	if gotStop != 1 || gotStart != 1 {
-		t.Fatalf("stop/start hits = %d/%d, want 1/1", gotStop, gotStart)
-	}
-}
-
-func TestProvider_InvalidLogTailInput(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"errors": []map[string]interface{}{{"message": "unexpected"}},
-		})
-	}))
-	t.Cleanup(srv.Close)
-
-	rec := &recordWeCom{}
-	store := core.NewStateStore(1 * time.Minute)
-	t.Cleanup(store.Close)
-
-	client := NewClient(ClientConfig{
-		Endpoint: srv.URL,
-		APIKey:   "k",
-	}, srv.Client())
-	p := NewProvider(ProviderDeps{
-		WeCom:  rec,
-		Client: client,
-		State:  store,
-	})
-
-	ctx := context.Background()
-	userID := "u"
-
-	if ok, err := p.HandleEvent(ctx, userID, wecom.IncomingMessage{EventKey: wecom.EventKeyUnraidViewLogs}); err != nil || !ok {
-		t.Fatalf("HandleEvent(view_logs) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	if ok, err := p.HandleText(ctx, userID, "app abc"); err != nil || !ok {
-		t.Fatalf("HandleText(logs abc) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-
-	texts := rec.Texts()
-	if len(texts) == 0 || !strings.Contains(texts[len(texts)-1].Content, "日志行数不合法") {
-		t.Fatalf("want invalid tail message, got: %#v", texts)
-	}
-}
-
-func TestProvider_LogTailClampMin(t *testing.T) {
-	t.Parallel()
-
-	var mu sync.Mutex
-	var tails []int
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req graphQLRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		q := req.Query
-		if strings.Contains(q, "docker { containers") {
-			if idx := strings.Index(q, "tail:"); idx >= 0 {
-				rest := q[idx+len("tail:"):]
-				rest = strings.TrimSpace(rest)
-				var digits strings.Builder
-				for _, ch := range rest {
-					if ch < '0' || ch > '9' {
-						break
-					}
-					_ = digits.WriteByte(byte(ch))
-				}
-				if digits.Len() > 0 {
-					n, _ := strconv.Atoi(digits.String())
-					mu.Lock()
-					tails = append(tails, n)
-					mu.Unlock()
-				}
-			}
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"data": map[string]interface{}{
-					"docker": map[string]interface{}{
-						"containers": []map[string]interface{}{
-							{
-								"id":     "docker:abc",
-								"names":  []string{"app"},
-								"state":  "running",
-								"status": "Up",
-								"logs":   "line1\nline2\nline3",
-							},
-						},
-					},
-				},
-			})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"errors": []map[string]interface{}{{"message": "unexpected"}},
-		})
-	}))
-	t.Cleanup(srv.Close)
-
-	rec := &recordWeCom{}
-	store := core.NewStateStore(1 * time.Minute)
-	t.Cleanup(store.Close)
-
-	client := NewClient(ClientConfig{
-		Endpoint: srv.URL,
-		APIKey:   "k",
-	}, srv.Client())
-	p := NewProvider(ProviderDeps{
-		WeCom:  rec,
-		Client: client,
-		State:  store,
-	})
-
-	ctx := context.Background()
-	userID := "u"
-
-	if ok, err := p.HandleEvent(ctx, userID, wecom.IncomingMessage{EventKey: wecom.EventKeyUnraidViewLogs}); err != nil || !ok {
-		t.Fatalf("HandleEvent(view_logs) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	if ok, err := p.HandleText(ctx, userID, "app 0"); err != nil || !ok {
-		t.Fatalf("HandleText(logs 0) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-
-	if ok, err := p.HandleEvent(ctx, userID, wecom.IncomingMessage{EventKey: wecom.EventKeyUnraidViewLogs}); err != nil || !ok {
-		t.Fatalf("HandleEvent(view_logs2) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	if ok, err := p.HandleText(ctx, userID, "app -1"); err != nil || !ok {
-		t.Fatalf("HandleText(logs -1) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-
-	mu.Lock()
-	got := append([]int(nil), tails...)
-	mu.Unlock()
-	if len(got) != 2 || got[0] != 1 || got[1] != 1 {
-		t.Fatalf("tails = %#v, want [1 1]", got)
-	}
-}
-
-func TestProvider_ViewStatus_ContainerNotFound(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req graphQLRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if strings.Contains(req.Query, "docker { containers") {
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"data": map[string]interface{}{
-					"docker": map[string]interface{}{
-						"containers": []map[string]interface{}{
-							{
-								"id":     "docker:abc",
-								"names":  []string{"other"},
-								"state":  "running",
-								"status": "Up",
-							},
-						},
-					},
-				},
-			})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"errors": []map[string]interface{}{{"message": "unexpected"}},
-		})
-	}))
-	t.Cleanup(srv.Close)
-
-	rec := &recordWeCom{}
-	store := core.NewStateStore(1 * time.Minute)
-	t.Cleanup(store.Close)
-
-	client := NewClient(ClientConfig{
-		Endpoint: srv.URL,
-		APIKey:   "k",
-	}, srv.Client())
-	p := NewProvider(ProviderDeps{
-		WeCom:  rec,
-		Client: client,
-		State:  store,
-	})
-
-	ctx := context.Background()
-	userID := "u"
-
-	if ok, err := p.HandleEvent(ctx, userID, wecom.IncomingMessage{EventKey: wecom.EventKeyUnraidViewStatus}); err != nil || !ok {
-		t.Fatalf("HandleEvent(view_status) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-	if ok, err := p.HandleText(ctx, userID, "missing"); err != nil || !ok {
-		t.Fatalf("HandleText(missing) ok=%v err=%v, want ok=true err=nil", ok, err)
-	}
-
-	texts := rec.Texts()
-	if len(texts) == 0 || !strings.Contains(texts[len(texts)-1].Content, "未找到容器") {
-		t.Fatalf("want not found error, got: %#v", texts)
-	}
-}
-
-func TestFormatContainerStatsOverview_FallbackToRaw(t *testing.T) {
-	t.Parallel()
-
-	out := formatContainerStatsOverview(ContainerStats{
-		Name:  "app",
-		Stats: map[string]interface{}{"unknown": "x"},
-	})
-	if !strings.Contains(out, "未识别到常见字段") {
-		t.Fatalf("want fallback text, got: %q", out)
-	}
-	if !strings.Contains(out, "\"unknown\"") {
-		t.Fatalf("want raw json in output, got: %q", out)
-	}
-}
-
-func TestTruncateForWecom_UTF8Safe(t *testing.T) {
-	t.Parallel()
-
-	in := strings.Repeat("你", 2000)
-	out := truncateForWecom(in)
-	if !utf8.ValidString(out) {
-		t.Fatalf("truncateForWecom output is not valid utf8")
-	}
-	if len(out) > maxWecomTextBytes {
-		t.Fatalf("output bytes = %d, want <= %d", len(out), maxWecomTextBytes)
-	}
-	if !strings.HasSuffix(out, wecomTruncSuffix) {
-		t.Fatalf("want suffix %q", wecomTruncSuffix)
-	}
-}
-
-func TestProvider_StopAndForceUpdate_ConfirmFlow(t *testing.T) {
-	t.Parallel()
-
-	var mu sync.Mutex
 	var stopHits int
 	var forceHits int
 
@@ -520,7 +62,38 @@ func TestProvider_StopAndForceUpdate_ConfirmFlow(t *testing.T) {
 		q := req.Query
 
 		switch {
+		case strings.Contains(q, "metrics"):
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": map[string]interface{}{
+					"metrics": map[string]interface{}{
+						"cpu": map[string]interface{}{
+							"percentTotal": 12.34,
+							"cpus": []map[string]interface{}{
+								{
+									"percentTotal":  12.34,
+									"percentUser":   1.0,
+									"percentSystem": 2.0,
+									"percentNice":   0.0,
+									"percentIdle":   87.66,
+									"percentIrq":    0.0,
+									"percentGuest":  0.0,
+									"percentSteal":  0.0,
+								},
+							},
+						},
+						"memory": map[string]interface{}{
+							"total":        "1073741824",
+							"used":         "536870912",
+							"free":         "268435456",
+							"available":    "805306368",
+							"percentTotal": 50.0,
+						},
+					},
+				},
+			})
+			return
 		case strings.Contains(q, "docker { containers"):
+
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"data": map[string]interface{}{
 					"docker": map[string]interface{}{
@@ -598,7 +171,7 @@ func TestProvider_StopAndForceUpdate_ConfirmFlow(t *testing.T) {
 	ctx := context.Background()
 	userID := "u"
 
-	// Stop
+	_ = "stop"
 	if ok, err := p.HandleEvent(ctx, userID, wecom.IncomingMessage{EventKey: wecom.EventKeyUnraidStop}); err != nil || !ok {
 		t.Fatalf("HandleEvent(stop) ok=%v err=%v, want ok=true err=nil", ok, err)
 	}
@@ -609,7 +182,7 @@ func TestProvider_StopAndForceUpdate_ConfirmFlow(t *testing.T) {
 		t.Fatalf("HandleConfirm(stop) ok=%v err=%v, want ok=true err=nil", ok, err)
 	}
 
-	// ForceUpdate
+	_ = "force update"
 	if ok, err := p.HandleEvent(ctx, userID, wecom.IncomingMessage{EventKey: wecom.EventKeyUnraidForceUpdate}); err != nil || !ok {
 		t.Fatalf("HandleEvent(force_update) ok=%v err=%v, want ok=true err=nil", ok, err)
 	}

@@ -29,10 +29,10 @@ const (
 	ActionUnraidStop        Action = "stop"
 	ActionUnraidForceUpdate Action = "force_update"
 
-	ActionUnraidViewStatus      Action = "view_status"
-	ActionUnraidViewStats       Action = "view_stats"
-	ActionUnraidViewStatsDetail Action = "view_stats_detail"
-	ActionUnraidViewLogs        Action = "view_logs"
+	ActionUnraidViewStatus            Action = "view_status"
+	ActionUnraidViewSystemStats       Action = "view_system_stats"
+	ActionUnraidViewSystemStatsDetail Action = "view_system_stats_detail"
+	ActionUnraidViewLogs              Action = "view_logs"
 
 	ActionQinglongRun     Action = "run"
 	ActionQinglongEnable  Action = "enable"
@@ -49,10 +49,10 @@ func ActionFromEventKey(key string) Action {
 		return ActionUnraidForceUpdate
 	case wecom.EventKeyUnraidViewStatus:
 		return ActionUnraidViewStatus
-	case wecom.EventKeyUnraidViewStats:
-		return ActionUnraidViewStats
-	case wecom.EventKeyUnraidViewStatsDetail:
-		return ActionUnraidViewStatsDetail
+	case wecom.EventKeyUnraidViewSystemStats:
+		return ActionUnraidViewSystemStats
+	case wecom.EventKeyUnraidViewSystemStatsDetail:
+		return ActionUnraidViewSystemStatsDetail
 	case wecom.EventKeyUnraidViewLogs:
 		return ActionUnraidViewLogs
 	default:
@@ -70,10 +70,10 @@ func (a Action) DisplayName() string {
 		return "强制更新"
 	case ActionUnraidViewStatus:
 		return "查看状态"
-	case ActionUnraidViewStats:
-		return "资源概览"
-	case ActionUnraidViewStatsDetail:
-		return "资源详情"
+	case ActionUnraidViewSystemStats:
+		return "系统资源概览"
+	case ActionUnraidViewSystemStatsDetail:
+		return "系统资源详情"
 	case ActionUnraidViewLogs:
 		return "查看日志"
 	case ActionQinglongRun:

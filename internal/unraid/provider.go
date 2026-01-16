@@ -3,7 +3,6 @@ package unraid
 // provider.go 将 Unraid 容器管理与查看能力适配为可插拔的企业微信交互 Provider。
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -65,15 +64,25 @@ func (p *Provider) HandleText(ctx context.Context, userID, content string) (bool
 				Content: unraidViewTextMenu(),
 			})
 		}
-		state.Step = core.StepAwaitingContainerName
 		state.Action = action
-		p.state.Set(userID, state)
 
-		prompt := fmt.Sprintf("已选择动作：%s\n请输入容器名：", action.DisplayName())
-		if action == core.ActionUnraidViewLogs {
-			prompt = fmt.Sprintf("已选择动作：%s\n请输入：容器名 [行数]（默认%d，最大%d）：", action.DisplayName(), defaultLogTail, maxLogTail)
+		switch action {
+		case core.ActionUnraidViewSystemStats, core.ActionUnraidViewSystemStatsDetail:
+			state.Step = ""
+			state.Action = ""
+			state.ContainerName = ""
+			p.state.Set(userID, state)
+			return true, p.execViewAndReply(ctx, userID, action, "", 0)
+		default:
+			state.Step = core.StepAwaitingContainerName
+			p.state.Set(userID, state)
+
+			prompt := fmt.Sprintf("已选择动作：%s\n请输入容器名：", action.DisplayName())
+			if action == core.ActionUnraidViewLogs {
+				prompt = fmt.Sprintf("已选择动作：%s\n请输入：容器名 [行数]（默认%d，最大%d）：", action.DisplayName(), defaultLogTail, maxLogTail)
+			}
+			return true, p.wecom.SendText(ctx, wecom.TextMessage{ToUser: userID, Content: prompt})
 		}
-		return true, p.wecom.SendText(ctx, wecom.TextMessage{ToUser: userID, Content: prompt})
 
 	case core.StepAwaitingUnraidOpsAction:
 		action, ok := parseUnraidOpsAction(content)
@@ -91,7 +100,14 @@ func (p *Provider) HandleText(ctx context.Context, userID, content string) (bool
 		return true, p.wecom.SendText(ctx, wecom.TextMessage{ToUser: userID, Content: prompt})
 
 	case core.StepAwaitingContainerName:
-		// 继续执行下方输入容器名的逻辑
+		if state.Action == core.ActionUnraidViewSystemStats || state.Action == core.ActionUnraidViewSystemStatsDetail {
+			action := state.Action
+			state.Step = ""
+			state.Action = ""
+			state.ContainerName = ""
+			p.state.Set(userID, state)
+			return true, p.execViewAndReply(ctx, userID, action, "", 0)
+		}
 
 	default:
 		return false, nil
@@ -166,19 +182,25 @@ func (p *Provider) HandleEvent(ctx context.Context, userID string, msg wecom.Inc
 		return true, p.wecom.SendTemplateCard(ctx, wecom.TemplateCardMessage{ToUser: userID, Card: wecom.NewUnraidEntryCard()})
 
 	case wecom.EventKeyUnraidRestart, wecom.EventKeyUnraidStop, wecom.EventKeyUnraidForceUpdate,
-		wecom.EventKeyUnraidViewStatus, wecom.EventKeyUnraidViewStats, wecom.EventKeyUnraidViewStatsDetail, wecom.EventKeyUnraidViewLogs:
+		wecom.EventKeyUnraidViewStatus, wecom.EventKeyUnraidViewSystemStats, wecom.EventKeyUnraidViewSystemStatsDetail, wecom.EventKeyUnraidViewLogs:
 		action := core.ActionFromEventKey(key)
-		p.state.Set(userID, core.ConversationState{
-			ServiceKey: p.Key(),
-			Step:       core.StepAwaitingContainerName,
-			Action:     action,
-		})
 
-		prompt := fmt.Sprintf("已选择动作：%s\n请输入容器名：", action.DisplayName())
-		if action == core.ActionUnraidViewLogs {
-			prompt = fmt.Sprintf("已选择动作：%s\n请输入：容器名 [行数]（默认%d，最大%d）：", action.DisplayName(), defaultLogTail, maxLogTail)
+		switch action {
+		case core.ActionUnraidViewSystemStats, core.ActionUnraidViewSystemStatsDetail:
+			return true, p.execViewAndReply(ctx, userID, action, "", 0)
+		default:
+			p.state.Set(userID, core.ConversationState{
+				ServiceKey: p.Key(),
+				Step:       core.StepAwaitingContainerName,
+				Action:     action,
+			})
+
+			prompt := fmt.Sprintf("已选择动作：%s\n请输入容器名：", action.DisplayName())
+			if action == core.ActionUnraidViewLogs {
+				prompt = fmt.Sprintf("已选择动作：%s\n请输入：容器名 [行数]（默认%d，最大%d）：", action.DisplayName(), defaultLogTail, maxLogTail)
+			}
+			return true, p.wecom.SendText(ctx, wecom.TextMessage{ToUser: userID, Content: prompt})
 		}
-		return true, p.wecom.SendText(ctx, wecom.TextMessage{ToUser: userID, Content: prompt})
 	default:
 		return false, nil
 	}
@@ -187,8 +209,8 @@ func (p *Provider) HandleEvent(ctx context.Context, userID string, msg wecom.Inc
 func unraidViewTextMenu() string {
 	return "Unraid 容器查看（文本模式）\n" +
 		"1. 查看状态\n" +
-		"2. 资源概览\n" +
-		"3. 资源详情\n" +
+		"2. 系统资源概览\n" +
+		"3. 系统资源详情\n" +
 		"4. 查看日志\n" +
 		"\n回复序号选择。"
 }
@@ -206,10 +228,10 @@ func parseUnraidViewAction(input string) (core.Action, bool) {
 	switch s {
 	case "1", "状态", "查看状态", "status":
 		return core.ActionUnraidViewStatus, true
-	case "2", "概览", "资源概览", "stats":
-		return core.ActionUnraidViewStats, true
-	case "3", "详情", "资源详情", "detail":
-		return core.ActionUnraidViewStatsDetail, true
+	case "2", "概览", "系统资源概览", "系统概览", "sys":
+		return core.ActionUnraidViewSystemStats, true
+	case "3", "详情", "系统资源详情", "系统详情", "detail":
+		return core.ActionUnraidViewSystemStatsDetail, true
 	case "4", "日志", "查看日志", "logs":
 		return core.ActionUnraidViewLogs, true
 	default:
@@ -291,19 +313,19 @@ func (p *Provider) execViewAction(ctx context.Context, action core.Action, conta
 		}
 		return formatContainerStatus(st), nil
 
-	case core.ActionUnraidViewStats:
-		stats, err := p.client.GetContainerStatsByName(ctx, containerName)
+	case core.ActionUnraidViewSystemStats:
+		m, err := p.client.GetSystemMetrics(ctx)
 		if err != nil {
 			return "", err
 		}
-		return formatContainerStatsOverview(stats), nil
+		return formatSystemMetricsOverview(m), nil
 
-	case core.ActionUnraidViewStatsDetail:
-		stats, err := p.client.GetContainerStatsByName(ctx, containerName)
+	case core.ActionUnraidViewSystemStatsDetail:
+		m, err := p.client.GetSystemMetrics(ctx)
 		if err != nil {
 			return "", err
 		}
-		return formatContainerStatsDetail(stats), nil
+		return formatSystemMetricsDetail(m), nil
 
 	case core.ActionUnraidViewLogs:
 		logs, err := p.client.GetContainerLogsByName(ctx, containerName, logTail)
@@ -358,55 +380,69 @@ func formatContainerStatus(st ContainerStatus) string {
 	return strings.Join(lines, "\n")
 }
 
-func formatContainerStatsOverview(st ContainerStats) string {
+func formatSystemMetricsOverview(m SystemMetrics) string {
 	var lines []string
-	lines = append(lines, fmt.Sprintf("【资源概览】%s", st.Name))
-
-	m, ok := st.Stats.(map[string]interface{})
-	if ok {
-		cpu, _ := pickAnyString(m, "cpuPercent", "cpu_percent", "cpu", "cpuUsage", "cpu_usage")
-		memUsage, _ := pickAnyString(m, "memUsage", "memoryUsage", "mem_usage", "memory_usage")
-		memLimit, _ := pickAnyString(m, "memLimit", "memoryLimit", "mem_limit", "memory_limit")
-		netIO, _ := pickAnyString(m, "netIO", "net_io", "networkIO", "network_io")
-		blockIO, _ := pickAnyString(m, "blockIO", "block_io", "diskIO", "disk_io")
-		pids, _ := pickAnyString(m, "pids", "pid", "pidsCurrent", "pids_current")
-
-		if cpu != "" {
-			lines = append(lines, fmt.Sprintf("CPU: %s", cpu))
-		}
-		if memUsage != "" || memLimit != "" {
-			switch {
-			case memUsage != "" && memLimit != "":
-				lines = append(lines, fmt.Sprintf("内存: %s / %s", memUsage, memLimit))
-			case memUsage != "":
-				lines = append(lines, fmt.Sprintf("内存: %s", memUsage))
-			default:
-				lines = append(lines, fmt.Sprintf("内存限制: %s", memLimit))
-			}
-		}
-		if netIO != "" {
-			lines = append(lines, fmt.Sprintf("网络IO: %s", netIO))
-		}
-		if blockIO != "" {
-			lines = append(lines, fmt.Sprintf("磁盘IO: %s", blockIO))
-		}
-		if pids != "" {
-			lines = append(lines, fmt.Sprintf("PIDs: %s", pids))
-		}
-	}
-
-	if len(lines) == 1 {
-		lines = append(lines, "（未识别到常见字段，返回原始数据）")
-		lines = append(lines, mustJSON(st.Stats))
+	lines = append(lines, "【系统资源概览】")
+	lines = append(lines, fmt.Sprintf("CPU: %.2f%%", m.CPUPercentTotal))
+	if m.MemoryTotal > 0 {
+		lines = append(lines, fmt.Sprintf("内存: %s / %s（%.2f%%）", formatBytesIEC(m.MemoryUsed), formatBytesIEC(m.MemoryTotal), m.MemoryPercent))
+	} else {
+		lines = append(lines, fmt.Sprintf("内存: used=%s free=%s avail=%s（%.2f%%）", formatBytesIEC(m.MemoryUsed), formatBytesIEC(m.MemoryFree), formatBytesIEC(m.MemoryAvailable), m.MemoryPercent))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func formatContainerStatsDetail(st ContainerStats) string {
+func formatSystemMetricsDetail(m SystemMetrics) string {
 	var lines []string
-	lines = append(lines, fmt.Sprintf("【资源详情】%s", st.Name))
-	lines = append(lines, mustJSON(st.Stats))
+	lines = append(lines, "【系统资源详情】")
+	lines = append(lines, fmt.Sprintf("CPU(total): %.2f%%", m.CPUPercentTotal))
+	if len(m.PerCPU) > 0 {
+		max := len(m.PerCPU)
+		if max > 8 {
+			max = 8
+		}
+		for i := 0; i < max; i++ {
+			c := m.PerCPU[i]
+			lines = append(lines, fmt.Sprintf("CPU%d: total=%.2f%% user=%.2f%% sys=%.2f%% idle=%.2f%%", i, c.PercentTotal, c.PercentUser, c.PercentSystem, c.PercentIdle))
+		}
+		if len(m.PerCPU) > max {
+			lines = append(lines, fmt.Sprintf("…（仅展示前 %d 个 CPU 核）", max))
+		}
+	}
+	lines = append(lines, fmt.Sprintf("mem.total: %s", formatBytesIEC(m.MemoryTotal)))
+	lines = append(lines, fmt.Sprintf("mem.used: %s", formatBytesIEC(m.MemoryUsed)))
+	lines = append(lines, fmt.Sprintf("mem.free: %s", formatBytesIEC(m.MemoryFree)))
+	lines = append(lines, fmt.Sprintf("mem.available: %s", formatBytesIEC(m.MemoryAvailable)))
+	lines = append(lines, fmt.Sprintf("mem.percentTotal: %.2f%%", m.MemoryPercent))
 	return strings.Join(lines, "\n")
+}
+
+func formatBytesIEC(b int64) string {
+	if b <= 0 {
+		return "0B"
+	}
+	const (
+		kib = 1024
+		mib = 1024 * kib
+		gib = 1024 * mib
+		tib = 1024 * gib
+	)
+	abs := b
+	if abs < 0 {
+		abs = -abs
+	}
+	switch {
+	case abs >= tib:
+		return fmt.Sprintf("%.2fTiB", float64(b)/float64(tib))
+	case abs >= gib:
+		return fmt.Sprintf("%.2fGiB", float64(b)/float64(gib))
+	case abs >= mib:
+		return fmt.Sprintf("%.2fMiB", float64(b)/float64(mib))
+	case abs >= kib:
+		return fmt.Sprintf("%.2fKiB", float64(b)/float64(kib))
+	default:
+		return fmt.Sprintf("%dB", b)
+	}
 }
 
 func formatContainerLogs(lg ContainerLogs) string {
@@ -417,26 +453,6 @@ func formatContainerLogs(lg ContainerLogs) string {
 	}
 	lines = append(lines, lg.Logs)
 	return strings.Join(lines, "\n")
-}
-
-func pickAnyString(m map[string]interface{}, keys ...string) (string, bool) {
-	for _, k := range keys {
-		if v, ok := m[k]; ok {
-			return fmt.Sprint(v), true
-		}
-	}
-	return "", false
-}
-
-func mustJSON(v interface{}) string {
-	if v == nil {
-		return "（无数据）"
-	}
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return fmt.Sprint(v)
-	}
-	return string(b)
 }
 
 func truncateForWecom(s string) string {
