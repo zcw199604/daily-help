@@ -385,9 +385,18 @@ func formatSystemMetricsOverview(m SystemMetrics) string {
 	lines = append(lines, "【系统资源概览】")
 	lines = append(lines, fmt.Sprintf("CPU: %.2f%%", m.CPUPercentTotal))
 	if m.MemoryTotal > 0 {
-		lines = append(lines, fmt.Sprintf("内存: %s / %s（%.2f%%）", formatBytesIEC(m.MemoryUsed), formatBytesIEC(m.MemoryTotal), m.MemoryPercent))
+		used := m.MemoryUsed
+		percent := m.MemoryPercent
+		if m.HasMemoryEffective {
+			used = m.MemoryUsedEffective
+			percent = m.MemoryPercentEffective
+		}
+		lines = append(lines, fmt.Sprintf("内存: %s / %s（%.2f%%）", formatBytesIEC(used), formatBytesIEC(m.MemoryTotal), percent))
 	} else {
 		lines = append(lines, fmt.Sprintf("内存: used=%s free=%s avail=%s（%.2f%%）", formatBytesIEC(m.MemoryUsed), formatBytesIEC(m.MemoryFree), formatBytesIEC(m.MemoryAvailable), m.MemoryPercent))
+	}
+	if m.HasNetworkTotals {
+		lines = append(lines, fmt.Sprintf("网络IO(容器累计): rx=%s tx=%s", formatBytesIEC(m.NetworkRxBytesTotal), formatBytesIEC(m.NetworkTxBytesTotal)))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -411,9 +420,17 @@ func formatSystemMetricsDetail(m SystemMetrics) string {
 	}
 	lines = append(lines, fmt.Sprintf("mem.total: %s", formatBytesIEC(m.MemoryTotal)))
 	lines = append(lines, fmt.Sprintf("mem.used: %s", formatBytesIEC(m.MemoryUsed)))
+	if m.HasMemoryEffective {
+		lines = append(lines, fmt.Sprintf("mem.usedEffective: %s", formatBytesIEC(m.MemoryUsedEffective)))
+		lines = append(lines, fmt.Sprintf("mem.percentEffective: %.2f%%", m.MemoryPercentEffective))
+	}
 	lines = append(lines, fmt.Sprintf("mem.free: %s", formatBytesIEC(m.MemoryFree)))
 	lines = append(lines, fmt.Sprintf("mem.available: %s", formatBytesIEC(m.MemoryAvailable)))
 	lines = append(lines, fmt.Sprintf("mem.percentTotal: %.2f%%", m.MemoryPercent))
+	if m.HasNetworkTotals {
+		lines = append(lines, fmt.Sprintf("net.rx_total(docker.netIO): %s", formatBytesIEC(m.NetworkRxBytesTotal)))
+		lines = append(lines, fmt.Sprintf("net.tx_total(docker.netIO): %s", formatBytesIEC(m.NetworkTxBytesTotal)))
+	}
 	return strings.Join(lines, "\n")
 }
 

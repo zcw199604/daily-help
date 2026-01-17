@@ -45,6 +45,7 @@
 ### 变更
 - 项目：整体更名为 wecom-home-ops（Go module/import、入口二进制、Dockerfile、示例命令与文档）
 - unraid：移除 GraphQL introspection 探测逻辑，改为固定字段 + 配置覆盖（logs/stats/force update）
+- unraid：系统资源概览/详情的“内存已用”改为 total-available 口径，并补充容器累计网络 IO（stats.netIO 汇总）
 - Docker：运行时镜像改为 scratch 并合并构建步骤，减少镜像层数
 
 ## [0.1.0] - 2026-01-12

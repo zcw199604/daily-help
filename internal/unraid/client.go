@@ -189,6 +189,14 @@ type SystemMetrics struct {
 	MemoryPercent   float64
 
 	PerCPU []CPUCoreLoad
+
+	MemoryUsedEffective    int64
+	MemoryPercentEffective float64
+	HasMemoryEffective     bool
+
+	NetworkRxBytesTotal int64
+	NetworkTxBytesTotal int64
+	HasNetworkTotals    bool
 }
 
 type CPUCoreLoad struct {
@@ -314,6 +322,11 @@ func (c *Client) GetSystemMetrics(ctx context.Context) (SystemMetrics, error) {
 		MemoryAvailable: parseInt64FromBigIntString(resp.Metrics.Memory.Available),
 		MemoryPercent:   resp.Metrics.Memory.PercentTotal,
 	}
+	if out.MemoryTotal > 0 && out.MemoryAvailable >= 0 && out.MemoryAvailable <= out.MemoryTotal {
+		out.MemoryUsedEffective = out.MemoryTotal - out.MemoryAvailable
+		out.MemoryPercentEffective = float64(out.MemoryUsedEffective) / float64(out.MemoryTotal) * 100
+		out.HasMemoryEffective = true
+	}
 
 	if len(resp.Metrics.CPU.CPUs) > 0 {
 		out.PerCPU = make([]CPUCoreLoad, 0, len(resp.Metrics.CPU.CPUs))
@@ -331,7 +344,154 @@ func (c *Client) GetSystemMetrics(ctx context.Context) (SystemMetrics, error) {
 		}
 	}
 
+	if rx, tx, ok, err := c.getDockerNetworkIOTotals(ctx); err == nil && ok {
+		out.NetworkRxBytesTotal = rx
+		out.NetworkTxBytesTotal = tx
+		out.HasNetworkTotals = true
+	}
+
 	return out, nil
+}
+
+func (c *Client) getDockerNetworkIOTotals(ctx context.Context) (rxTotal int64, txTotal int64, ok bool, err error) {
+	fieldName := strings.TrimSpace(c.cfg.StatsField)
+	if fieldName == "" {
+		return 0, 0, false, nil
+	}
+
+	// 优先尝试 stats 为对象形态：{ netIO }
+	var raw map[string]interface{}
+	qObj := fmt.Sprintf(`query { docker { containers { %s { netIO } } } }`, fieldName)
+	if err := c.do(ctx, qObj, nil, &raw); err != nil {
+		// 兼容：部分实现 stats 为标量（JSON/string），不支持 selection set。
+		if !isMaybeUnsupportedGraphQL(err) {
+			return 0, 0, false, err
+		}
+		qScalar := fmt.Sprintf(`query { docker { containers { %s } } }`, fieldName)
+		raw = nil
+		if err2 := c.do(ctx, qScalar, nil, &raw); err2 != nil {
+			return 0, 0, false, err2
+		}
+	}
+
+	dockerObj, _ := raw["docker"].(map[string]interface{})
+	list, _ := dockerObj["containers"].([]interface{})
+
+	var parsed bool
+	for _, item := range list {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		netIO, ok := extractDockerNetIOString(m[fieldName])
+		if !ok {
+			continue
+		}
+		rx, tx, ok := parseDockerNetIO(netIO)
+		if !ok {
+			continue
+		}
+		rxTotal += rx
+		txTotal += tx
+		parsed = true
+	}
+	if !parsed {
+		return 0, 0, false, nil
+	}
+	return rxTotal, txTotal, true, nil
+}
+
+func extractDockerNetIOString(v interface{}) (string, bool) {
+	switch vv := v.(type) {
+	case nil:
+		return "", false
+	case string:
+		s := strings.TrimSpace(vv)
+		return s, s != ""
+	case map[string]interface{}:
+		s, _ := vv["netIO"].(string)
+		s = strings.TrimSpace(s)
+		return s, s != ""
+	default:
+		return "", false
+	}
+}
+
+func parseDockerNetIO(s string) (rxBytes int64, txBytes int64, ok bool) {
+	parts := strings.Split(s, "/")
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	rx, ok1 := parseHumanBytes(parts[0])
+	tx, ok2 := parseHumanBytes(parts[1])
+	if !ok1 || !ok2 {
+		return 0, 0, false
+	}
+	return rx, tx, true
+}
+
+func parseHumanBytes(s string) (int64, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+
+	// 支持：12.3kB / 12.3 kB / 12.3KiB / 123B
+	var i int
+	for i < len(s) {
+		b := s[i]
+		if (b >= '0' && b <= '9') || b == '.' {
+			i++
+			continue
+		}
+		break
+	}
+	if i == 0 {
+		return 0, false
+	}
+
+	numPart := strings.TrimSpace(s[:i])
+	unitPart := strings.TrimSpace(s[i:])
+	if unitPart == "" {
+		unitPart = "B"
+	}
+
+	v, err := strconv.ParseFloat(numPart, 64)
+	if err != nil {
+		return 0, false
+	}
+
+	u := strings.ToUpper(strings.ReplaceAll(unitPart, " ", ""))
+	var mul float64
+	switch u {
+	case "B":
+		mul = 1
+	case "KB", "K":
+		mul = 1000
+	case "MB":
+		mul = 1000 * 1000
+	case "GB":
+		mul = 1000 * 1000 * 1000
+	case "TB":
+		mul = 1000 * 1000 * 1000 * 1000
+	case "KIB":
+		mul = 1024
+	case "MIB":
+		mul = 1024 * 1024
+	case "GIB":
+		mul = 1024 * 1024 * 1024
+	case "TIB":
+		mul = 1024 * 1024 * 1024 * 1024
+	default:
+		return 0, false
+	}
+
+	bytes := v * mul
+	if bytes < 0 {
+		return 0, false
+	}
+	// 仅用于统计展示，保留四舍五入即可。
+	return int64(bytes + 0.5), true
 }
 
 func (c *Client) GetContainerLogsByName(ctx context.Context, name string, tail int) (ContainerLogs, error) {

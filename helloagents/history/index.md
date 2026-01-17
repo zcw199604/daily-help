@@ -31,6 +31,7 @@
 | 202601141311 | unraid_official_api_kb | 文档 | ✅已完成 | [202601141311_unraid_official_api_kb](2026-01/202601141311_unraid_official_api_kb/) |
 | 202601141334 | unraid_force_update_webgui_fallback | 修复 | ✅已完成 | [202601141334_unraid_force_update_webgui_fallback](2026-01/202601141334_unraid_force_update_webgui_fallback/) |
 | 202601141432 | unraid_schema_snapshot | 文档 | ✅已完成 | [202601141432_unraid_schema_snapshot](2026-01/202601141432_unraid_schema_snapshot/) |
+| 202601170026 | unraid_system_metrics | 变更 | ✅已完成 | [202601170026_unraid_system_metrics](2026-01/202601170026_unraid_system_metrics/) |
 
 ---
 
@@ -61,3 +62,4 @@
 - [202601141311_unraid_official_api_kb](2026-01/202601141311_unraid_official_api_kb/) - Unraid 官方 API（GraphQL）与上游客户端用法整理入库
 - [202601141334_unraid_force_update_webgui_fallback](2026-01/202601141334_unraid_force_update_webgui_fallback/) - Unraid 强制更新新增 WebGUI StartCommand.php 兜底（update_container）
 - [202601141432_unraid_schema_snapshot](2026-01/202601141432_unraid_schema_snapshot/) - 目标 Unraid 实例（10.10.10.100）GraphQL schema 摘要入库
+- [202601170026_unraid_system_metrics](2026-01/202601170026_unraid_system_metrics/) - 系统资源：内存已用口径调整 + 容器累计网络 IO
