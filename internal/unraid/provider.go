@@ -429,6 +429,21 @@ func formatSystemMetricsOverview(m SystemMetrics) string {
 		lines = append(lines, fmt.Sprintf("内存已用: %s（占用率 %.2f%%）", formatBytesIEC(m.MemoryUsed), m.MemoryPercent))
 		lines = append(lines, fmt.Sprintf("内存可用: %s；空闲: %s", formatBytesIEC(m.MemoryAvailable), formatBytesIEC(m.MemoryFree)))
 	}
+	if m.HasUnraidUptime {
+		lines = append(lines, fmt.Sprintf("Unraid 启动时长: %s", formatSecondsCN(m.UnraidUptimeSeconds)))
+	} else if note := strings.TrimSpace(m.UnraidUptimeNote); note != "" {
+		lines = append(lines, fmt.Sprintf("Unraid 启动时长: %s", note))
+	}
+	if len(m.UPSDevices) > 0 {
+		first := formatUPSDeviceInline(m.UPSDevices[0])
+		if len(m.UPSDevices) == 1 {
+			lines = append(lines, fmt.Sprintf("UPS: %s", first))
+		} else {
+			lines = append(lines, fmt.Sprintf("UPS: %d 台（首台 %s）", len(m.UPSDevices), first))
+		}
+	} else if note := strings.TrimSpace(m.UPSNote); note != "" {
+		lines = append(lines, fmt.Sprintf("UPS: %s", note))
+	}
 	if m.HasNetworkTotals {
 		lines = append(lines, fmt.Sprintf("网络（容器累计）: 接收 %s；发送 %s", formatBytesIEC(m.NetworkRxBytesTotal), formatBytesIEC(m.NetworkTxBytesTotal)))
 	}
@@ -473,6 +488,12 @@ func formatSystemMetricsDetail(m SystemMetrics) string {
 		}
 	}
 
+	if m.HasUnraidUptime {
+		lines = append(lines, fmt.Sprintf("Unraid 启动时长: %s", formatSecondsCN(m.UnraidUptimeSeconds)))
+	} else if note := strings.TrimSpace(m.UnraidUptimeNote); note != "" {
+		lines = append(lines, fmt.Sprintf("Unraid 启动时长: %s", note))
+	}
+
 	lines = append(lines, fmt.Sprintf("内存总量: %s", formatBytesIEC(m.MemoryTotal)))
 	if m.HasMemoryEffective {
 		lines = append(lines, fmt.Sprintf("内存实际占用: %s（%.2f%%）", formatBytesIEC(m.MemoryUsedEffective), m.MemoryPercentEffective))
@@ -493,7 +514,84 @@ func formatSystemMetricsDetail(m SystemMetrics) string {
 	if m.HasNetworkTotals {
 		lines = append(lines, fmt.Sprintf("网络（容器累计）: 接收 %s；发送 %s", formatBytesIEC(m.NetworkRxBytesTotal), formatBytesIEC(m.NetworkTxBytesTotal)))
 	}
+	if len(m.UPSDevices) > 0 {
+		maxDevices := len(m.UPSDevices)
+		if maxDevices > 2 {
+			maxDevices = 2
+		}
+		for i := 0; i < maxDevices; i++ {
+			lines = append(lines, fmt.Sprintf("UPS%d: %s", i+1, formatUPSDeviceInline(m.UPSDevices[i])))
+		}
+		if len(m.UPSDevices) > maxDevices {
+			lines = append(lines, fmt.Sprintf("…（仅展示前 %d 台 UPS）", maxDevices))
+		}
+	} else if note := strings.TrimSpace(m.UPSNote); note != "" {
+		lines = append(lines, fmt.Sprintf("UPS: %s", note))
+	}
 	return strings.Join(lines, "\n")
+}
+
+func formatSecondsCN(seconds int64) string {
+	if seconds <= 0 {
+		return "0 分钟"
+	}
+	if seconds < 60 {
+		return fmt.Sprintf("%d 秒", seconds)
+	}
+	minutes := seconds / 60
+	if minutes < 60 {
+		return fmt.Sprintf("%d 分钟", minutes)
+	}
+	hours := minutes / 60
+	if hours < 24 {
+		return fmt.Sprintf("%d 小时 %d 分钟", hours, minutes%60)
+	}
+	days := hours / 24
+	return fmt.Sprintf("%d 天 %d 小时", days, hours%24)
+}
+
+func formatPercent(v float64) string {
+	if v >= 0 && v <= 1 {
+		v = v * 100
+	}
+	return fmt.Sprintf("%.0f%%", v)
+}
+
+func formatUPSDeviceInline(d UPSDeviceMetrics) string {
+	name := strings.TrimSpace(d.Name)
+	if name == "" {
+		name = strings.TrimSpace(d.Model)
+	}
+	if name == "" {
+		name = strings.TrimSpace(d.ID)
+	}
+	if name == "" {
+		name = "UPS"
+	}
+
+	status := strings.TrimSpace(d.Status)
+	if status == "" {
+		status = "未知"
+	}
+
+	parts := []string{status}
+	if d.Battery != nil {
+		if d.Battery.ChargeLevel != nil {
+			parts = append(parts, "电量 "+formatPercent(*d.Battery.ChargeLevel))
+		}
+		if d.Battery.EstimatedRuntime != nil {
+			rt := int64(*d.Battery.EstimatedRuntime)
+			if rt > 0 {
+				parts = append(parts, "续航 "+formatSecondsCN(rt))
+			}
+		}
+	}
+	if d.Power != nil {
+		if d.Power.LoadPercentage != nil {
+			parts = append(parts, "负载 "+formatPercent(*d.Power.LoadPercentage))
+		}
+	}
+	return fmt.Sprintf("%s（%s）", name, strings.Join(parts, "，"))
 }
 
 func formatBytesIEC(b int64) string {

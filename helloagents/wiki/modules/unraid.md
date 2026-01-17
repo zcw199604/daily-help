@@ -30,7 +30,9 @@
 查看主机系统资源（入口位于企业微信 Unraid 菜单的“系统监控”，不在“容器查看”中展示）：
 - CPU：使用 `metrics.cpu.percentTotal`（详情额外展示 per-CPU 前 8 个核）
 - 内存：概览展示使用 `effective used = total - available` 的口径；详情同时保留 raw used 便于排查
+- 启动时长：可选展示 Unraid 系统运行时长（`info { os { uptime } }`；通常为秒）
 - 网络：可选展示“容器累计网络 IO”（汇总所有容器 `stats.netIO` 的 rx/tx；若目标 schema/config 不支持则自动省略）
+- UPS：可选展示 UPS 状态/电量/续航/负载（来自 `upsDevices { ... }`；未配置或无设备会提示“未检测到/未获取到”）
 - 输出：中文标签，优先把关键指标放在前面，便于微信端快速判读
 - 5 分钟均值：暂不实现（如需要需在客户端侧采样聚合）
 
@@ -40,7 +42,9 @@
   - 运行时长：仅在 `status` 以 `Up` 开头时解析并回显
 - **系统资源:**
   - CPU/内存：`metrics { cpu { ... } memory { ... } }`
+  - 启动时长：`info { os { uptime } }`
   - 网络（容器累计）：`docker { containers { <stats_field> { netIO } } }`（依赖 `unraid.stats_field`，且字段需要支持 `netIO`）
+  - UPS：`upsDevices { ... }`（如 query 不支持会自动跳过并提示“未获取到”）
 - **日志:**
   - 数据来源：Unraid Connect GraphQL 的容器字段（默认 `logs`）
   - 兼容策略：不再做 introspection 探测；改为“固定字段 + 配置覆盖”。如上游 Schema 不一致，请在 `config.yaml` 配置：
@@ -80,6 +84,7 @@ MVP 使用 Unraid Connect 插件提供的 GraphQL API（`/graphql` + `x-api-key`
 - 2026-01-14: 强制更新回退识别增强，兼容 GraphQL 错误转义差异，避免未触发回退
 - 2026-01-14: 强制更新新增 WebGUI StartCommand.php 兜底（update_container）
 - 2026-01-17: 系统资源：内存已用按 total-available 口径展示，并补充容器累计网络 IO（stats.netIO 汇总）
+- 2026-01-17: 系统资源概览：补充 Unraid 启动时长与 UPS 信息（若可用）
 - 2026-01-17: 菜单：新增“系统监控”入口，系统资源从“容器查看”迁移
 - [202601141207_unraid_force_update_compat](../../history/2026-01/202601141207_unraid_force_update_compat/) - 强制更新回退兼容（错误转义差异）
 - [202601141334_unraid_force_update_webgui_fallback](../../history/2026-01/202601141334_unraid_force_update_webgui_fallback/) - 强制更新 WebGUI 兜底（StartCommand.php update_container）

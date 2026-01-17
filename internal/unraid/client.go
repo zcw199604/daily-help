@@ -197,6 +197,34 @@ type SystemMetrics struct {
 	NetworkRxBytesTotal int64
 	NetworkTxBytesTotal int64
 	HasNetworkTotals    bool
+
+	// Unraid 系统运行时长（通常为秒）。用于展示“服务启动时长/运行时长”。
+	UnraidUptimeSeconds int64
+	HasUnraidUptime     bool
+	UnraidUptimeNote    string
+
+	// UPS 设备信息（如未配置/未检测到设备，可能为空）。
+	UPSDevices []UPSDeviceMetrics
+	UPSNote    string
+}
+
+type UPSDeviceMetrics struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Model  string `json:"model"`
+	Status string `json:"status"`
+
+	Battery *struct {
+		ChargeLevel      *float64 `json:"chargeLevel"`
+		EstimatedRuntime *float64 `json:"estimatedRuntime"`
+		Health           *string  `json:"health"`
+	} `json:"battery"`
+
+	Power *struct {
+		InputVoltage   *float64 `json:"inputVoltage"`
+		OutputVoltage  *float64 `json:"outputVoltage"`
+		LoadPercentage *float64 `json:"loadPercentage"`
+	} `json:"power"`
 }
 
 type CPUCoreLoad struct {
@@ -350,7 +378,88 @@ func (c *Client) GetSystemMetrics(ctx context.Context) (SystemMetrics, error) {
 		out.HasNetworkTotals = true
 	}
 
+	if seconds, ok, err := c.getUnraidUptimeSeconds(ctx); err != nil {
+		out.UnraidUptimeNote = "未获取到"
+	} else if ok {
+		out.UnraidUptimeSeconds = seconds
+		out.HasUnraidUptime = true
+	} else {
+		out.UnraidUptimeNote = "未获取到"
+	}
+
+	if devices, ok, err := c.getUPSDevices(ctx); err != nil {
+		out.UPSNote = "未获取到"
+	} else if ok {
+		if len(devices) == 0 {
+			out.UPSNote = "未检测到"
+		} else {
+			out.UPSDevices = devices
+		}
+	} else {
+		out.UPSNote = "未获取到"
+	}
+
 	return out, nil
+}
+
+func (c *Client) getUnraidUptimeSeconds(ctx context.Context) (seconds int64, ok bool, err error) {
+	const q = `query { info { os { uptime } } }`
+	var resp struct {
+		Info struct {
+			OS struct {
+				Uptime interface{} `json:"uptime"`
+			} `json:"os"`
+		} `json:"info"`
+	}
+	if err := c.do(ctx, q, nil, &resp); err != nil {
+		return 0, false, err
+	}
+	seconds, ok = parseNumberishToInt64(resp.Info.OS.Uptime)
+	return seconds, ok, nil
+}
+
+func (c *Client) getUPSDevices(ctx context.Context) ([]UPSDeviceMetrics, bool, error) {
+	const q = `query { upsDevices { id name model status battery { chargeLevel estimatedRuntime health } power { inputVoltage outputVoltage loadPercentage } } }`
+
+	var resp struct {
+		UPSDevices []UPSDeviceMetrics `json:"upsDevices"`
+	}
+	if err := c.do(ctx, q, nil, &resp); err != nil {
+		return nil, false, err
+	}
+	return resp.UPSDevices, true, nil
+}
+
+func parseNumberishToInt64(v interface{}) (int64, bool) {
+	switch vv := v.(type) {
+	case nil:
+		return 0, false
+	case float64:
+		return int64(vv), true
+	case int64:
+		return vv, true
+	case json.Number:
+		n, err := vv.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return n, true
+	case string:
+		s := strings.TrimSpace(vv)
+		if s == "" {
+			return 0, false
+		}
+		// uptime 可能为整型秒，也可能被序列化为字符串数字。
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return n, true
+		}
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			return int64(f), true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
 }
 
 func (c *Client) getDockerNetworkIOTotals(ctx context.Context) (rxTotal int64, txTotal int64, ok bool, err error) {
