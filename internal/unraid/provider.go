@@ -383,20 +383,27 @@ func formatContainerStatus(st ContainerStatus) string {
 func formatSystemMetricsOverview(m SystemMetrics) string {
 	var lines []string
 	lines = append(lines, "【系统资源概览】")
-	lines = append(lines, fmt.Sprintf("CPU: %.2f%%", m.CPUPercentTotal))
+	lines = append(lines, fmt.Sprintf("CPU 总使用率: %.2f%%", m.CPUPercentTotal))
 	if m.MemoryTotal > 0 {
 		used := m.MemoryUsed
 		percent := m.MemoryPercent
+		usedLabel := "已用"
 		if m.HasMemoryEffective {
 			used = m.MemoryUsedEffective
 			percent = m.MemoryPercentEffective
+			usedLabel = "实际占用"
 		}
-		lines = append(lines, fmt.Sprintf("内存: %s / %s（%.2f%%）", formatBytesIEC(used), formatBytesIEC(m.MemoryTotal), percent))
+		memLine := fmt.Sprintf("内存%s: %s / %s（%.2f%%）", usedLabel, formatBytesIEC(used), formatBytesIEC(m.MemoryTotal), percent)
+		if m.MemoryAvailable > 0 {
+			memLine = memLine + fmt.Sprintf("，可用 %s", formatBytesIEC(m.MemoryAvailable))
+		}
+		lines = append(lines, memLine)
 	} else {
-		lines = append(lines, fmt.Sprintf("内存: used=%s free=%s avail=%s（%.2f%%）", formatBytesIEC(m.MemoryUsed), formatBytesIEC(m.MemoryFree), formatBytesIEC(m.MemoryAvailable), m.MemoryPercent))
+		lines = append(lines, fmt.Sprintf("内存已用: %s（占用率 %.2f%%）", formatBytesIEC(m.MemoryUsed), m.MemoryPercent))
+		lines = append(lines, fmt.Sprintf("内存可用: %s；空闲: %s", formatBytesIEC(m.MemoryAvailable), formatBytesIEC(m.MemoryFree)))
 	}
 	if m.HasNetworkTotals {
-		lines = append(lines, fmt.Sprintf("网络IO(容器累计): rx=%s tx=%s", formatBytesIEC(m.NetworkRxBytesTotal), formatBytesIEC(m.NetworkTxBytesTotal)))
+		lines = append(lines, fmt.Sprintf("网络（容器累计）: 接收 %s；发送 %s", formatBytesIEC(m.NetworkRxBytesTotal), formatBytesIEC(m.NetworkTxBytesTotal)))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -404,32 +411,60 @@ func formatSystemMetricsOverview(m SystemMetrics) string {
 func formatSystemMetricsDetail(m SystemMetrics) string {
 	var lines []string
 	lines = append(lines, "【系统资源详情】")
-	lines = append(lines, fmt.Sprintf("CPU(total): %.2f%%", m.CPUPercentTotal))
+	lines = append(lines, fmt.Sprintf("CPU 总使用率: %.2f%%", m.CPUPercentTotal))
 	if len(m.PerCPU) > 0 {
-		max := len(m.PerCPU)
-		if max > 8 {
-			max = 8
+		maxCores := len(m.PerCPU)
+		if maxCores > 8 {
+			maxCores = 8
 		}
-		for i := 0; i < max; i++ {
+
+		minTotal, maxTotal := m.PerCPU[0].PercentTotal, m.PerCPU[0].PercentTotal
+		minIdle, maxIdle := m.PerCPU[0].PercentIdle, m.PerCPU[0].PercentIdle
+		for i := 0; i < maxCores; i++ {
 			c := m.PerCPU[i]
-			lines = append(lines, fmt.Sprintf("CPU%d: total=%.2f%% user=%.2f%% sys=%.2f%% idle=%.2f%%", i, c.PercentTotal, c.PercentUser, c.PercentSystem, c.PercentIdle))
+			if c.PercentTotal < minTotal {
+				minTotal = c.PercentTotal
+			}
+			if c.PercentTotal > maxTotal {
+				maxTotal = c.PercentTotal
+			}
+			if c.PercentIdle < minIdle {
+				minIdle = c.PercentIdle
+			}
+			if c.PercentIdle > maxIdle {
+				maxIdle = c.PercentIdle
+			}
 		}
-		if len(m.PerCPU) > max {
-			lines = append(lines, fmt.Sprintf("…（仅展示前 %d 个 CPU 核）", max))
+		lines = append(lines, fmt.Sprintf("CPU 核心（前 %d 个）: %.2f%%~%.2f%%（空闲 %.2f%%~%.2f%%）", maxCores, minTotal, maxTotal, minIdle, maxIdle))
+
+		for i := 0; i < maxCores; i++ {
+			c := m.PerCPU[i]
+			lines = append(lines, fmt.Sprintf("CPU%d: 总 %.2f%%（用户 %.2f%%，系统 %.2f%%，空闲 %.2f%%）", i, c.PercentTotal, c.PercentUser, c.PercentSystem, c.PercentIdle))
+		}
+		if len(m.PerCPU) > maxCores {
+			lines = append(lines, fmt.Sprintf("…（仅展示前 %d 个 CPU 核）", maxCores))
 		}
 	}
-	lines = append(lines, fmt.Sprintf("mem.total: %s", formatBytesIEC(m.MemoryTotal)))
-	lines = append(lines, fmt.Sprintf("mem.used: %s", formatBytesIEC(m.MemoryUsed)))
+
+	lines = append(lines, fmt.Sprintf("内存总量: %s", formatBytesIEC(m.MemoryTotal)))
 	if m.HasMemoryEffective {
-		lines = append(lines, fmt.Sprintf("mem.usedEffective: %s", formatBytesIEC(m.MemoryUsedEffective)))
-		lines = append(lines, fmt.Sprintf("mem.percentEffective: %.2f%%", m.MemoryPercentEffective))
+		lines = append(lines, fmt.Sprintf("内存实际占用: %s（%.2f%%）", formatBytesIEC(m.MemoryUsedEffective), m.MemoryPercentEffective))
+		if m.MemoryAvailable > 0 {
+			lines = append(lines, fmt.Sprintf("内存可用: %s", formatBytesIEC(m.MemoryAvailable)))
+		}
+		if m.MemoryFree > 0 {
+			lines = append(lines, fmt.Sprintf("内存空闲: %s", formatBytesIEC(m.MemoryFree)))
+		}
+		if m.MemoryUsed > 0 {
+			lines = append(lines, fmt.Sprintf("内存原始已用（含缓存/缓冲）: %s", formatBytesIEC(m.MemoryUsed)))
+		}
+		lines = append(lines, "提示：判断内存压力优先看“内存可用/内存实际占用”。")
+	} else {
+		lines = append(lines, fmt.Sprintf("内存已用: %s（%.2f%%）", formatBytesIEC(m.MemoryUsed), m.MemoryPercent))
+		lines = append(lines, fmt.Sprintf("内存可用: %s；空闲: %s", formatBytesIEC(m.MemoryAvailable), formatBytesIEC(m.MemoryFree)))
 	}
-	lines = append(lines, fmt.Sprintf("mem.free: %s", formatBytesIEC(m.MemoryFree)))
-	lines = append(lines, fmt.Sprintf("mem.available: %s", formatBytesIEC(m.MemoryAvailable)))
-	lines = append(lines, fmt.Sprintf("mem.percentTotal: %.2f%%", m.MemoryPercent))
 	if m.HasNetworkTotals {
-		lines = append(lines, fmt.Sprintf("net.rx_total(docker.netIO): %s", formatBytesIEC(m.NetworkRxBytesTotal)))
-		lines = append(lines, fmt.Sprintf("net.tx_total(docker.netIO): %s", formatBytesIEC(m.NetworkTxBytesTotal)))
+		lines = append(lines, fmt.Sprintf("网络（容器累计）: 接收 %s；发送 %s", formatBytesIEC(m.NetworkRxBytesTotal), formatBytesIEC(m.NetworkTxBytesTotal)))
 	}
 	return strings.Join(lines, "\n")
 }

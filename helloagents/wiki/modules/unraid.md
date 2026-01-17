@@ -27,6 +27,7 @@
   - CPU：使用 `metrics.cpu.percentTotal`（详情额外展示 per-CPU 前 8 个核）
   - 内存：概览展示使用 `effective used = total - available` 的口径；详情同时保留 raw used 便于排查
   - 网络：可选展示“容器累计网络 IO”（汇总所有容器 `stats.netIO` 的 rx/tx；若目标 schema/config 不支持则自动省略）
+  - 输出：中文标签，优先把关键指标放在前面，便于微信端快速判读
   - 5 分钟均值：暂不实现（如需要需在客户端侧采样聚合）
 - 最新日志（默认 50 行，支持指定行数；输出有长度截断）
 
