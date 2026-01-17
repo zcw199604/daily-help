@@ -35,6 +35,7 @@
 | 202601170046 | unraid_metrics_output_i18n | 变更 | ✅已完成 | [202601170046_unraid_metrics_output_i18n](2026-01/202601170046_unraid_metrics_output_i18n/) |
 | 202601170102 | unraid_system_menu | 变更 | ✅已完成 | [202601170102_unraid_system_menu](2026-01/202601170102_unraid_system_menu/) |
 | 202601170138 | unraid_system_overview_uptime_ups | 变更 | ✅已完成 | [202601170138_unraid_system_overview_uptime_ups](2026-01/202601170138_unraid_system_overview_uptime_ups/) |
+| 202601170231 | pve_api_kb | 文档 | ✅已完成 | [202601170231_pve_api_kb](2026-01/202601170231_pve_api_kb/) |
 
 ---
 
@@ -69,3 +70,4 @@
 - [202601170046_unraid_metrics_output_i18n](2026-01/202601170046_unraid_metrics_output_i18n/) - 系统资源输出改为中文易读格式
 - [202601170102_unraid_system_menu](2026-01/202601170102_unraid_system_menu/) - 新增“系统监控”入口并迁移系统资源菜单
 - [202601170138_unraid_system_overview_uptime_ups](2026-01/202601170138_unraid_system_overview_uptime_ups/) - 系统资源概览补充 Unraid 启动时长与 UPS 信息
+- [202601170231_pve_api_kb](2026-01/202601170231_pve_api_kb/) - PVE（Proxmox VE）官方 API 文档要点入库

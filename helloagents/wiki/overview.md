@@ -33,6 +33,7 @@
 - [技术约定](../project.md)
 - [架构设计](arch.md)
 - [API 手册](api.md)
+- [PVE API 要点](pve_api.md)
 - [数据模型](data.md)
 - [青龙 OpenAPI 调用方式](qinglong_openapi.md)
 - [青龙官方文档快照](qinglong_official/README.md)

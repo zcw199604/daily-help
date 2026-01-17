@@ -21,6 +21,7 @@
 - 文档：补充青龙在微信/不支持模板卡片客户端的文本菜单交互说明
 - 文档：整理上游项目 `s3ppo/unraid_mobile_ui` 的功能与 GraphQL API 使用方式
 - 文档：整理 Unraid 官方 API（GraphQL）文档要点（可用性/鉴权/API key/OIDC/CLI/示例 Query）
+- 文档：整理 PVE（Proxmox VE）官方 API（REST）文档要点（鉴权/API Viewer/pvesh/客户端库）
 - 配置：新增 `server.http_client_timeout` / `server.read_header_timeout` / `core.state_ttl`，支持按环境调整
 - 测试：补齐 Unraid/Qinglong/WeCom 交互与边界的详细单元测试
 - unraid：强制更新新增 WebGUI StartCommand.php 兜底（支持 `update_container <name>`；需配置 csrf_token/可选 Cookie）
